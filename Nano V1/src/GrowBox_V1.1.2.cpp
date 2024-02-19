@@ -1,4 +1,7 @@
-/* Version: 1.1.1
+/* Version: 1.1.2
+    -Memory usage: 
+        RAM: 79.0% (!!!)
+        Flash: 74.9%
     -This is intended for Arduino NANO 3.0 typically sold in aliexpres
 
     -Due to my incompetence as a programmer, this code causes memory constrains (specially SRAM) on Arduino NANO. 
@@ -25,7 +28,7 @@
 
 //Constants
     //General constants
-        #define Version "1.1.1"
+        #define Version "1.1.2"
         //comment or uncomment the following defines to allow certain code to be included
             //#define DebugMode                 //When enabled, LCD will print lot more stuff to show what is happening at that time.
             #define LowMemoryMode               //When enabled, memory will me optimized by disabling functions and menus
@@ -419,7 +422,7 @@ void LogData(byte FileNum, byte Datasize, float* DataArray) {
                 delay(300);
 
             //print that it was successful
-            #ifndef DebugMode
+            #ifdef DebugMode
                 lcd.clear();
                 lcd.print("Data logged.");
             #endif
@@ -678,11 +681,9 @@ void ManualSoilCal() {
 }
 
 void PumpWater() {
-    //#if !defined(LowMemoryMode) || defined(DebugMode)
     lcd.clear();
     lcd.print(" Watering plant");
     delay(500);
-    //#endif 
 
     digitalWrite(A2, HIGH);
     delay(60000);
@@ -790,12 +791,11 @@ void ManualFanSet() {
 }
 #endif
 
+
 void HumidityCheck() {
-    //#ifndef LowMemoryMode
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Measuring soil...");
-    //#endif
 
     float SoilData[2];
     SoilMeasurement(SoilData);
@@ -806,6 +806,11 @@ void HumidityCheck() {
     lcd.print(" % humidity");
     delay(1000);
 
+    #ifdef  LowMemoryMode  
+    delay(3000);
+    #endif
+
+    #ifndef LowMemoryMode                   //Disabled option to water the plants after checking humidity
     if (SoilData[0] <= 75) {                //TODO: this watering is not saved in the .txt file!
         lcd.setCursor(0, 1);
         lcd.scrollDisplayRight();
@@ -835,6 +840,7 @@ void HumidityCheck() {
         }
     }
     lcd.noAutoscroll();
+    #endif
 }
 #if !defined(LowMemoryMode) || defined(DebugMode)
 void PrintData(byte Datasize, float* DataArray) {
