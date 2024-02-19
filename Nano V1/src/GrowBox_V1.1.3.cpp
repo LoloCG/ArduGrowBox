@@ -1,18 +1,8 @@
-/* Version: 1.1.2
+/* Version: 1.1.3
     -Memory usage: 
         RAM: 79.0% (!!!)
         Flash: 74.9%
     -This is intended for Arduino NANO 3.0 typically sold in aliexpres
-
-    -Due to my incompetence as a programmer, this code causes memory constrains (specially SRAM) on Arduino NANO. 
-        I have set up a #define (LowMemoryMode) that disables multiple functions and menus, 
-        thus allowing enough free SRAM to run properly.
-        Disabling LowMemoryMode is not garanteed to work in this version...
-        They are kept for future versions and as tests
-        
-        For the future, I will optimize code and consider porting into STM32 (Bluepill/Blackpill) 
-        and ESP32 processors (ESP32 S3), both of which have orders of magnitude greater memory size. 
-
     --------------------------------------------------------------------------------------------------------------------------*/
 //Libraries
 	#include <Arduino.h>
@@ -23,23 +13,29 @@
     #include <SD.h>                     //for SD card datalogger
     //#include <Adafruit_Sensor.h>      //for DHT22 nto required here, as it is included in DHT22 library already, but must have it in platformio.ini
     #include <DHT.h>                    //for DHT22 temperature/humidity sensor
+    #ifdef FanControl
     #include <SparkFun_TB6612.h>        //for the motor driver
-    
+    #endif
 
 //Constants
     //General constants
-        #define Version "1.1.2"
-        //comment or uncomment the following defines to allow certain code to be included
-            //#define DebugMode                 //When enabled, LCD will print lot more stuff to show what is happening at that time.
-            #define LowMemoryMode               //When enabled, memory will me optimized by disabling functions and menus
-            //#define FanControl                //Disabled when im not controlling fans
+        #define Version "1.1.3"
 
-        //millis counting to perform a measure at determined timings 
+        //Functionalities
+            /*          !!! Enable or disable by commenting/uncommenting the following code !!!
+            */
+
+            #define LowMemoryMode               //When enabled, memory will me optimized by disabling functions and menus that are not completely necessary
+            //#define FanControl                //When enabled, microcontroller will use the fans. Disabled for cases where the fans are manually set
+            #define Datalogger                  //When enabled, it will allow the code for import of data into the SD card reader
+            //#define SoilSensCalibr              //When enabled, it allows the option in the menu for calibrating the soil sensors rather than using hardcoded analog values 
+        //Time keeping
             unsigned long AirMesmillis = millis();
             unsigned long SoilMesmillis = millis();
             unsigned long OtherMillis = millis();       //Used as general purpose
             unsigned long ScreenOff = millis();
             unsigned long ButtonMillis = millis();      //Used for button purposes...
+
         //Values for the keypad
             int KeyThresholds[3] = {525, 690, 775};     //Analog values detected by the pins of the keypad. Dependent on the resistors
             byte keypad[3] = {0,1,2};                   //this is the interpreted values after each key press
@@ -65,10 +61,12 @@
         } Calvalues;
 
     //RTC and SD constants
+        #ifdef Datalogger
         RTC_DS3231 rtc;                             //The type of RTC used
         const byte chipSelect = 4;                  //CS pin for SD card reader
-
+        #endif
     //Constants for TB6612 motor driver
+        #ifdef FanControl
         const int offsetA = 1;
         const int offsetB = 1;
 
@@ -84,7 +82,7 @@
 
         Motor motor1 = Motor(AIN1, AIN2, PWMA, offsetA, STBY);
         Motor motor2 = Motor(BIN1, BIN2, PWMB, offsetB, STBY);
-
+        #endif
 //Function references
         void ReadDHT22(float* AirData);
         void PrintData(byte Datasize, float* DataArray);
@@ -115,25 +113,25 @@ void setup() {
         delay(1500);
     //start the SD card
         // see if the card is present and can be initialized:
+        #ifdef Datalogger
         if (!SD.begin(chipSelect)) {
             ErrorMessages(1);
         }
-        #if !defined(LowMemoryMode) || defined(DebugMode)
+        #if !defined(LowMemoryMode)
         lcd.setCursor(0, 1);
         lcd.print("SD card present");
         delay(1500);
         #endif
+        #endif 
     //start RTC and set time
         if (! rtc.begin()) {
             ErrorMessages(2);
         }
-        //#if !defined(LowMemoryMode) || defined(DebugMode)
         lcd.clear();
         lcd.print("Initiating...");
         lcd.setCursor(0, 1);
         lcd.print("RTC: ");
         lcd.print(rtc.lostPower() == 1 ? "Has stopped" : "OK");       //Shows if the RTC is running with its battery
-        //#endif
         /*
         if (rtc.lostPower()) {                  //not sure if this really works... could cause trouble if RTC is turned off
             rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
@@ -148,24 +146,28 @@ void setup() {
     //Start DHT22 sensor
         dht.begin();
 
-    //Set initial calibration values for soil meter.      
-        //!!! if you already know the upper and lower values write it
+    //Set initial calibration values for soil meter.   
+        //!!! if you already know the upper and lower values write them, as it makes calibration later not required
+            //The values must be determined beforehand
         Calvalues.HighCal1 = 195;
-        //Calvalues.HighCal2 = 345;         used for second sensor, not used in this version
+        //Calvalues.HighCal2 = 345;         used for a second sensor, not used in this version
         Calvalues.LowCal1 = 500;
         //Calvalues.LowCal2 = 750;
    
     //Set other parameters
         MenuOn = 0;
+
+        #ifdef FanControl
         pinMode(BIN2, OUTPUT);      //Used for pin BIN2 of the motor driver, as it requires the use of A1 as digital pin
-        //motor2.drive(25);         //Auto start the fans at 10%
-        pinMode(A2, OUTPUT);
+        motor2.drive(25);           //Auto start the fans at 10% speed
+        pinMode(A2, OUTPUT);        //AnalogPin 2 is used for Fans
+        #endif 
 
         PowerSave = false;          //Powersave mode is set as off at setup
         ScreenOff = millis();
     
     //Show internal temp
-        #if !defined(LowMemoryMode) || defined(DebugMode)
+        #if !defined(LowMemoryMode)
         lcd.clear();
         lcd.setCursor(0, 0);
         lcd.print("Initiating...");
@@ -231,31 +233,35 @@ void loop() {
             }
         */
 
+        #ifdef Datalogger
         //Logs data into SD card and prints it in the screen
             LogData(1, 1, SoilData);            //Changed size of array from 2 to 1, as StDev is not used in arduino nano due to memory constrains
             delay(2000);
-            #if !defined(LowMemoryMode) || defined(DebugMode)
+            #if !defined(LowMemoryMode)
             PrintData(2, SoilData);  
             delay(2000);
             #endif 
+        #endif
+
         //checks if humidity was lower than a threshold
             if (SoilData[0] <= 65) {            //Humidity threshold for watering below this level
-                #if !defined(LowMemoryMode) || defined(DebugMode)
+                #if !defined(LowMemoryMode)
                 lcd.clear();
                 lcd.setCursor(0, 0);
                 lcd.print("Humidity low");
                 delay(1000);
                 #endif
                 PumpWater();
+                #ifdef Datalogger
                 LogData(3, 1, SoilData);
-
+                #endif
             }
         //restarts the counting for next soil humidity datalog
             SoilMesmillis = millis();
     }
      
     if (millis() - AirMesmillis >= 900000) {       //Temp+Hum sensor measurement 900000 = 15 min
-        #if !defined(LowMemoryMode) || defined(DebugMode)
+        #if !defined(LowMemoryMode)
         lcd.clear();
         lcd.setCursor(0, 0);
         lcd.print("measuring Air...");
@@ -265,19 +271,24 @@ void loop() {
         //obtain values from function
             float AirData[3];      
             ReadDHT22(AirData);
-
+        
+        #ifdef Datalogger
         //print data + send to SD card logging
             LogData(2, 3, AirData);
             delay(2000);
-            #if !defined(LowMemoryMode) || defined(DebugMode)
+            #if !defined(LowMemoryMode)
             PrintData(2, AirData);  
             delay(2000);
             #endif
+        #endif
 
         //Use AirData to check if VPD is above or below the threshold...
-            #if Testing
+            /* COMING SOON....
+            #ifdef FanControl
             if (AirData[2] <= 0.5 || AirData[2] >= 1.0) {} //TODO:
             #endif
+            */
+
         //Reset the timer for next 15 mins
             AirMesmillis = millis();
     }
@@ -300,7 +311,7 @@ void loop() {
             if (MainMenuOption == 1) {
                 ManualSoilCal();
             }
-            #if FanControl
+            #ifdef FanControl
             if (MainMenuOption == 2) {
                 ManualFanSet();
             }
@@ -369,6 +380,7 @@ void ReadDHT22(float* AirData) {                //Function to measure air temp. 
         return;
 }
 
+#ifdef Datalogger
 void LogData(byte FileNum, byte Datasize, float* DataArray) {
     //Select folder based on FileNum
         char filename[20]; //TODO: not sure if there is a way to optimize
@@ -420,30 +432,29 @@ void LogData(byte FileNum, byte Datasize, float* DataArray) {
                 dataFile.println("");
                 dataFile.close();
                 delay(300);
-
-            //print that it was successful
-            #ifdef DebugMode
-                lcd.clear();
-                lcd.print("Data logged.");
-            #endif
         }
 }
+#endif 
 
 void ErrorMessages(byte ErNum) {
     PowerSave = false;
     lcd.displayOn();
     lcd.clear();
 
+    #ifdef Datalogger
     if (ErNum == 1) {
         lcd.print("SD card failed,");
         lcd.setCursor(0, 1);
         lcd.print("or not present");
     }
+    #endif
+
     else if (ErNum == 2) {
         lcd.print(" RTC not found");
         lcd.setCursor(0, 1);
         lcd.print("Check and reset");    
     }
+
     else if (ErNum == 3) {
         lcd.print("cannot open .txt");
         lcd.setCursor(0, 1);
@@ -612,7 +623,7 @@ byte MainMenu() {
 }
 
 void ManualSoilCal() {
-    //Used to track if the measurement is stable (?)
+    #ifdef SoilSensCalibr
 	lcd.clear();
     lcd.setCursor(0, 0);
 	lcd.print("Dry + Wet sensor");
@@ -678,6 +689,13 @@ void ManualSoilCal() {
     lcd.print(Calvalues.HighCal1);
     delay(3000);
     #endif
+    #endif
+
+    #ifndef SoilSensCalibr                  //Shows the text when the option is disabled
+    lcd.clear();
+    lcd.print("Option disabled...");
+    delay(3000);
+    #endif
 }
 
 void PumpWater() {
@@ -689,7 +707,7 @@ void PumpWater() {
     delay(60000);
     digitalWrite(A2, LOW);
 
-    #if !defined(LowMemoryMode) || defined(DebugMode)
+    #if !defined(LowMemoryMode)
     lcd.clear();
     lcd.print(" Plant watered");
     delay(1000);
@@ -842,7 +860,7 @@ void HumidityCheck() {
     lcd.noAutoscroll();
     #endif
 }
-#if !defined(LowMemoryMode) || defined(DebugMode)
+#if !defined(LowMemoryMode)
 void PrintData(byte Datasize, float* DataArray) {
     //When the function is called, it includes the size of data array in a byte number format, and the array with data to save
     //print hour and date
