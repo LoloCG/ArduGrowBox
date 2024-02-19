@@ -1,7 +1,7 @@
 /* Version: 1.1.3
     -Memory usage: 
-        RAM: 79.0% (!!!)
-        Flash: 74.9%
+        RAM: 73.8%
+        Flash: 72.2%
     -This is intended for Arduino NANO 3.0 typically sold in aliexpres
     --------------------------------------------------------------------------------------------------------------------------*/
 //Libraries
