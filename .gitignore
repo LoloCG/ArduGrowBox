@@ -6,3 +6,6 @@
 .pio/libdeps/ 
 .vscode 
 .gitignore
+include
+lib
+test
