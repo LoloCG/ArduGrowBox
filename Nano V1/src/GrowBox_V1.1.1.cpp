@@ -1,4 +1,4 @@
-/* Version: 1.3.1
+/* Version: 1.1.1
     -This is intended for Arduino NANO 3.0 typically sold in aliexpres
 
     -Due to my incompetence as a programmer, this code causes memory constrains (specially SRAM) on Arduino NANO. 
@@ -25,6 +25,7 @@
 
 //Constants
     //General constants
+        #define Version "1.1.1"
         //comment or uncomment the following defines to allow certain code to be included
             //#define DebugMode                 //When enabled, LCD will print lot more stuff to show what is happening at that time.
             #define LowMemoryMode               //When enabled, memory will me optimized by disabling functions and menus
@@ -105,7 +106,10 @@ void setup() {
         delay(5000);   
         }
         lcd.print("Initiating...");
-
+        lcd.setCursor(0, 1);
+        lcd.print("Version: ");
+        lcd.print(Version);
+        delay(1500);
     //start the SD card
         // see if the card is present and can be initialized:
         if (!SD.begin(chipSelect)) {
@@ -507,14 +511,14 @@ byte MainMenu() {
 			lcd.print("Return");
 			lcd.setCursor(0, 1);
 			lcd.print(" Soil H% calib. ");
-			delay(500);
+			delay(100);
 			byte keypress;
 			keypress = ButtonPress();
 			
 			if (keypress == 0) {            //If enter key is pressed
 				ExitMenu = true;
 				lcd.clear();
-				lcd.print("Returning");
+				lcd.print("Returning...");
 				delay(1000);
                 MainMenuOption = 0;
                 return MainMenuOption;
@@ -533,7 +537,7 @@ byte MainMenu() {
 			lcd.setCursor(0, 1);
 			lcd.write(ARROW_LEFT);
             lcd.print("Soil H% calib.");
-            delay(300);
+            delay(100);
 			byte keypress;
 			keypress = ButtonPress();
 			
@@ -549,7 +553,7 @@ byte MainMenu() {
 				MainMenuSel = 3;
 			}	
 		}
-        #if defined(FanControl) || !defined(LowMemoryMode)
+        #if defined(FanControl)
 		else if (MainMenuSel == 2) {    //Menu 3, Manual Fan control
 			lcd.clear();
             lcd.setCursor(0, 0);
@@ -557,7 +561,7 @@ byte MainMenu() {
 			lcd.setCursor(0, 1);
 			lcd.write(ARROW_LEFT);
 			lcd.print("Manual Fan ctrl");
-            delay(300);
+            delay(100);
 			byte keypress;
 			keypress = ButtonPress();
 			
@@ -582,7 +586,7 @@ byte MainMenu() {
             lcd.print("Soil Humidity");
             lcd.setCursor(0,1);
             lcd.print("MAIN to continue");
-            delay(300);
+            delay(100);
 
 			byte keypress;
 			keypress = ButtonPress();
@@ -787,11 +791,11 @@ void ManualFanSet() {
 #endif
 
 void HumidityCheck() {
-    #ifndef LowMemoryMode
+    //#ifndef LowMemoryMode
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Measuring soil...");
-    #endif
+    //#endif
 
     float SoilData[2];
     SoilMeasurement(SoilData);
@@ -821,6 +825,13 @@ void HumidityCheck() {
             lcd.clear();
             lcd.print("Returning...");
             delay(1000);
+        }
+    }
+    else {
+        lcd.setCursor(0, 1);
+        lcd.print("Press to exit");
+        while (analogRead(A6) > 1000) {
+            delay(1);
         }
     }
     lcd.noAutoscroll();
