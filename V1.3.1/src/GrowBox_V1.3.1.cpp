@@ -1,35 +1,16 @@
 /* Version: 1.3.1
-    -Due to memory constrains (specially SRAM) on Arduino NANO, and my incompetence as a programmer, I have set up
-        a #define (LowMemoryMode) that disables multiple functions and menus, thus allowing enough free SRAM to run properly.
+    -This is intended for Arduino NANO 3.0 typically sold in aliexpres
+
+    -Due to my incompetence as a programmer, this code causes memory constrains (specially SRAM) on Arduino NANO. 
+        I have set up a #define (LowMemoryMode) that disables multiple functions and menus, 
+        thus allowing enough free SRAM to run properly.
         Disabling LowMemoryMode is not garanteed to work in this version...
+        They are kept for future versions and as tests
         
         For the future, I will optimize code and consider porting into STM32 (Bluepill/Blackpill) 
         and ESP32 processors (ESP32 S3), both of which have orders of magnitude greater memory size. 
 
-    --------------------------------------------------------------------------------------------------------------------------
-    -TODO: There are still many things I need or want to add for easy porting into boards with more space (STM32 or ESP32...)
-        (! = urgent, 1-3 = level of importance...)
-        
-        1-Check code that can be improved to save RAM usage
-            This is of vital importance due to RAM limitations on ATMega328p
-        
-        2-VPD fan speed control
-            -Will code it into loop function of air measurement
-            -I require it to control the fans based on humidity and temperature...
-                HIGH temp., HIGH HR% = high VPD --> Speed UP Extractor and intake fan
-                LOW temp., LOW HR% = ??? --> Speed UP extractor fan
-                ???
-        3-Override VPD fan control with manual, or stop automatic...
-        3-implement day/night cycle changes
-            not sure if required for anything... mostly for sound and energy saving
-            -set a threshold for lower fan speed for nights (maybe?)
-        3-Add in the humidity check, the time of last watering
-        2-Add water sensor to check if the water bucket is empty
-            Already implemented in 1.2 version in electrical diagram, but not implemented in code
-        3-Water only at night option in menu
-            maybe through setting a boolean variable that activates the watering function when in early morning/night
-        ?-Add #define NoFans mode to disable everything that has to do with fans
-    */
+    --------------------------------------------------------------------------------------------------------------------------*/
 //Libraries
 	#include <Arduino.h>
     #include <Wire.h> 
@@ -45,27 +26,24 @@
 //Constants
     //General constants
         //comment or uncomment the following defines to allow certain code to be included
-            //#define DebugMode               //When enabled, LCD will print lot more stuff to show what is happening at that time.
+            //#define DebugMode                 //When enabled, LCD will print lot more stuff to show what is happening at that time.
             #define LowMemoryMode               //When enabled, memory will me optimized by disabling functions and menus
-            //#define Testing
-            //#define FanControl
+            //#define FanControl                //Disabled when im not controlling fans
 
         //millis counting to perform a measure at determined timings 
             unsigned long AirMesmillis = millis();
             unsigned long SoilMesmillis = millis();
-            unsigned long OtherMillis = millis();           //Used as general purpose
+            unsigned long OtherMillis = millis();       //Used as general purpose
             unsigned long ScreenOff = millis();
-        
+            unsigned long ButtonMillis = millis();      //Used for button purposes...
         //Values for the keypad
-            int KeyThresholds[3] = {525, 690, 775};     //this one selects the analog values detected by the pins, dependent on the resistors
+            int KeyThresholds[3] = {525, 690, 775};     //Analog values detected by the pins of the keypad. Dependent on the resistors
             byte keypad[3] = {0,1,2};                   //this is the interpreted values after each key press
-            byte MenuOn;
-            byte Button;            //0 = idle, 1 = press, 2 = long press
+            byte MenuOn;                                //Variable that keeps other functions such as VPD display off. TODO: Not sure if really necessary
 
         boolean PowerSave;
 
     //Constants for the LCD
-        #define ARROW_RIGHT 0x7F
         #define ARROW_LEFT  0x7E
         LiquidCrystal_I2C lcd(PCF8574_ADDR_A21_A11_A01, 4, 5, 6, 16, 11, 12, 13, 14, POSITIVE);
         
@@ -83,24 +61,26 @@
         } Calvalues;
 
     //RTC and SD constants
-        RTC_DS3231 rtc;
+        RTC_DS3231 rtc;                             //The type of RTC used
         const byte chipSelect = 4;                  //CS pin for SD card reader
+
     //Constants for TB6612 motor driver
         const int offsetA = 1;
         const int offsetB = 1;
 
-        #define STBY 11       //Not actually used here... 
+        #define STBY 11                             //Not actually used here... TODO: check if there is any way to remove it 
         //pins for the motor1
-        #define AIN1 8
-        #define AIN2 A1
-        #define PWMA 10
+        #define AIN1 7
+        #define AIN2 6
+        #define PWMA 9
         //pins for motor2
-        #define BIN1 7
+        #define BIN1 8
         #define BIN2 A1
-        #define PWMB 9
+        #define PWMB 10
 
         Motor motor1 = Motor(AIN1, AIN2, PWMA, offsetA, STBY);
         Motor motor2 = Motor(BIN1, BIN2, PWMB, offsetB, STBY);
+
 //Function references
         void ReadDHT22(float* AirData);
         void PrintData(byte Datasize, float* DataArray);
@@ -266,7 +246,7 @@ void loop() {
         //restarts the counting for next soil humidity datalog
             SoilMesmillis = millis();
     }
-    
+     
     if (millis() - AirMesmillis >= 900000) {       //Temp+Hum sensor measurement 900000 = 15 min
         #if !defined(LowMemoryMode) || defined(DebugMode)
         lcd.clear();
@@ -296,27 +276,19 @@ void loop() {
     }
 
     if (analogRead(A6) <= 1000) {                   //used to detect button press and start the menu
-        OtherMillis = millis();
+        ButtonMillis = millis();
         PowerSave = false;
         lcd.displayOn();
-        //lcd.clear();
-        //lcd.print(analogRead(A6));              //DEBUG!
+
         while (analogRead(A6) <= 1000){         //wait for the button to stop being pressed
             delay(1);
         }
         
-        if (millis() - OtherMillis >= 2000) {   //if 2s has passed then go to the menu
+        if (millis() - ButtonMillis >= 1000) {   //if 2s has passed then go to the menu
             MenuOn = 1;
-        
-            #if !defined(LowMemoryMode) || defined(DebugMode)
-            lcd.clear();
-            lcd.setCursor(0, 0);
-            lcd.print(" Entering menu");
-            delay(1000);
-            #endif
-
             byte MainMenuOption;
             MainMenuOption = MainMenu();
+
             delay(200);
             if (MainMenuOption == 1) {
                 ManualSoilCal();
@@ -326,17 +298,18 @@ void loop() {
                 ManualFanSet();
             }
             #endif
+
             else if (MainMenuOption == 3) {
                 HumidityCheck();
             }
         }
 
         MenuOn = 0;
-        OtherMillis = millis() + 5000;          //added some time to prompt the air values
+        ButtonMillis = millis();                //added some time to prompt the air values
         ScreenOff = millis();                   //Restarts the counting or LCD backlight off mode
     }
 
-    if (millis() - ScreenOff >= 30000 && !PowerSave) {      //30000 = 30s
+    if (millis() - ScreenOff >= 60000 && !PowerSave) {      //30000 = 30s. Used to turn off the screen after not touching any button
         PowerSave = true;
         lcd.displayOff();
     } 
@@ -475,27 +448,40 @@ void ErrorMessages(byte ErNum) {
 
 byte ButtonPress() {
 	//Sets the values for analog thresholds and keypad 
+        ButtonMillis = millis();
 		int KeyThresholds[3] = {540, 690, 775};
 		byte keypad[3] = {0,1,2};
 		byte keypress;
-	
+        boolean LongPress;
+
 	//Waits until any button is pressed
 		while (analogRead(A6) > 1000) {		
 			delay(1);
 		}
 
-	//saves analog value and with a loop finds closest threshold
+    //checks if the button was pressed for short time (500ms)
+        if (millis() - ButtonMillis >= 200 && millis() - ButtonMillis < 1000) {
+            LongPress = false;
+        }
+        
+        else if (millis() - ButtonMillis > 1000) {
+            LongPress = true;
+        }
+
+	//saves analog value and with a loop finds closest threshold to set it to the determined key
 		int val = analogRead(A6);	
 		for (int i = 0; i < 3; i++) {					//loop 3 times increasing i
 			if (abs(val - KeyThresholds[i]) < 30) {		//If analog is in threshold, select key
 				keypress = keypad[i];
 			}
 		}
+
 	//waits until button is no longer pressed, and sends it back to caller
 		while (analogRead(A6) < 1000) {
 			delay(1);
 		}
 		return keypress;
+        return LongPress;
 }
 
 byte MainMenu() {

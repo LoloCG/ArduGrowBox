@@ -1,0 +1,41 @@
+TODO: 
+CRITICAL:
+    [ ]-Check code that can be improved to save RAM usage
+        [ ]-Optimize MainMenu function
+    [ ]-Check what is wrong with Soil humidity control
+        It seems to work, but takes time to open, and displays humidity for low amount of time
+    [ ]-Check what is wrong with Menu not working properly
+    [X]-Implement bounceback in button function
+
+Important:
+    [ ]-VPD Fan speed control
+        through the logging of airdata function in main loop:
+        [ ]-If high temperature --> increase Extractor speed
+        [ ]-If High temperature and high humidity --> increase intake fan
+
+    [ ]-Include in buttonpress function, detection of long or short press
+    W[ ]-Include humidity control through activation of humidifier
+        Wait until obtaining humidifier
+    [ ]-
+
+Meh:
+    [ ]-Implement day/night cycle fan change   
+        For disabling fans at night unless high variation of VPD.
+        Or maybe set only to low speeds the fans.
+        This will help reduce noise at night and save energy.
+    [ ]-Add in the humidity check the time of last watering
+        Maybe through opening the .txt file and reading it somehow?
+    [ ]-Add option to change VPD ranges
+        for seedlings, vegging and flowering stages maybe?
+    [ ]-Add water level sensor in the watering bucket
+        Maybe could be added as the attiny85 standalone module
+    
+Maybe:
+    [ ]-Add #define and #ifndef to each thing to modify what is used in the code
+    [ ]-improve manual fan control
+        maybe add a system that overrides manual if VPD range is thrown off too high...
+    [ ]-Otion to only water at night or other option..
+        not sure if watering at night is better than during day...
+
+For future versions:
+    [ ]- Change from LCD screen to OLED display
