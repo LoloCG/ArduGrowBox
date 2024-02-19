@@ -5,6 +5,4 @@
 .vscode/ipch
 .pio/libdeps/ 
 .vscode 
-/include
-/lib
-/test
+.gitignore
