@@ -5,6 +5,6 @@
 .vscode/ipch
 .pio/libdeps/ 
 .vscode 
-include
-lib
-test
+/include
+/lib
+/test
