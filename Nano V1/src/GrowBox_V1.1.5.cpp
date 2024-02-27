@@ -1,13 +1,13 @@
 /* 
     -This is intended for Arduino NANO 3.0 typically sold in aliexpres
     --------------------------------------------------------------------------------------------------------------------------*/
-#define Version "1.1.5a"
+#define Version "1.1.6c"
 
 //Configuration
     #define LowMemoryMode                   //Disables texts and functions that are less than necessary
     #define FanControl                      //Enables usage of all Fan related things. Disable when external Fan usage
     //#define SoilSensCalibr                //Enables function to calibrate soil moisture sensor in the menu
-    #define Datalogging                     //Enables logging data into SD. Requires RTC module present also
+    #define Datalog                     //Enables logging data into SD. Requires RTC module present also
 
     #define SoilHumWatering 70              //Threshold of soil humidity to water plant. Depends on sensor, plant and soil.
     
@@ -20,7 +20,7 @@
     #include <LiquidCrystal_I2C.h>    
     #include <DHT.h>                    //for DHT22 temperature/humidity sensor
         
-    #ifdef Datalogging
+    #ifdef Datalog
     #include <SD.h>                     //for SD card datalogger
     #include "RTClib.h"                 //for RTC Adafruit's library
     #include <SPI.h>                    //required for SD's SPI communication
@@ -29,6 +29,7 @@
     #ifdef FanControl
     #include <SparkFun_TB6612.h>        //for the motor driver
     #endif
+
 
 //Constants    
     //millis timers
@@ -58,12 +59,14 @@
         } Calvalues;
 
     //RTC and SD constants
-        #ifdef Datalogger
+        #ifdef Datalog
         RTC_DS3231 rtc;                             //The type of RTC used
         const byte chipSelect = 4;                  //CS pin for SD card reader
         #endif
-    //Constants for TB6612 motor driver
+    //Constants for Fans and TB6612 motor driver
         #ifdef FanControl
+        byte FanSpeed;
+
         const int offsetA = 1;
         const int offsetB = 1;
 
@@ -88,7 +91,8 @@
         void SoilMeasurement(float* SoilData);
         byte MainMenu();
         byte ButtonPress();
-        void ManualFanSet();
+        void AutoFanControl(float* AirData);
+        //void ManualFanSet();      //Not yet added the option
         void HumidityCheck();
         void ManualSoilCal();
         void PumpWater();
@@ -115,7 +119,7 @@ void setup() {
 
     //start the SD card
         // see if the card is present and can be initialized:
-        #ifdef Datalogger
+        #ifdef Datalog
         if (!SD.begin(chipSelect)) {
             ErrorMessages(1);
         }
@@ -129,7 +133,7 @@ void setup() {
         #endif
     
     //start RTC and set time
-        #ifdef Datalogger
+        #ifdef Datalog
         if (! rtc.begin()) {
             ErrorMessages(2);
         }
@@ -158,7 +162,7 @@ void setup() {
 
 
     //Show the date and time set
-        #ifdef Datalogger
+        #ifdef Datalog
         lcd.clear();
         lcd.setCursor(0, 0);
         lcd.print("Date is set at:");
@@ -214,42 +218,13 @@ void loop() {
 
             lcd.setCursor(3, 1);
             lcd.print(AirData[2],2);
-            lcd.print(" kPa VPD");
+            lcd.print("kPa VPD");
             OtherMillis = millis();
             delay(2500);
+        
+        //Send values to Fan control function
+            AutoFanControl(AirData);
 
-        //Fan control with VPD
-            #ifdef FanControl
-            //TODO: change into a separate function
-            //TODO: add humidity functionality. Now only works according to temperature 
-            if (AirData[1] >= 28 && AirData[1] < 30)  {         //20% - 28-30ºC
-                motor1.drive(20 * 2.55);
-                lcd.clear();
-                lcd.setCursor(0, 0);
-                lcd.print("fan 20%"); 
-            }
-            if (AirData[1] >= 30 && AirData[1] < 32) {          //30% - 30-32ºC
-                motor1.drive(30 * 2.55);
-                lcd.clear();
-                lcd.setCursor(0, 0);
-                lcd.print("fan 30%"); 
-            }
-            else if (AirData[1] >= 26 && AirData[1] < 28) {     //10% - 26-28ºC
-                motor1.drive(10 * 2.55);
-                lcd.clear();
-                lcd.setCursor(0, 0);
-                lcd.print("fan 10%"); 
-            } 
-            else if (AirData[1] < 26){                          //0% - <26ºC
-                motor1.drive(0);
-            }
-            if (AirData[1] >= 32) {          //50% - >32ºC
-                motor1.drive(50 * 2.55);
-                lcd.clear();
-                lcd.setCursor(0, 0);
-                lcd.print("fan 50%"); 
-            }
-            #endif
     }
 
     if (millis() - SoilMesmillis >= TimeSoilMeasurement) {      //Soil sensor measurement 1800000 = 30 mins
@@ -258,7 +233,7 @@ void loop() {
             SoilMeasurement(SoilData); 
 
         //Logs data into SD card and prints it in the screen
-            #ifdef Datalogger
+            #ifdef Datalog
             LogData(1, 1, SoilData);
             delay(2000);
             #if !defined(LowMemoryMode)
@@ -270,7 +245,7 @@ void loop() {
         //checks if humidity was lower than a threshold
             if (SoilData[0] <= SoilHumWatering) { 
                 PumpWater();
-                #ifdef Datalogger
+                #ifdef Datalog
                 LogData(3, 1, SoilData);
                 #endif
             }
@@ -278,7 +253,7 @@ void loop() {
             SoilMesmillis = millis();
     }
     
-    #ifdef Datalogger           //Right now, function only serves datalogging purposes
+    #ifdef Datalog           //Right now, function only serves datalogging purposes
     if (millis() - AirMesmillis >= 900000) {       //Temp+Hum sensor measurement 900000 = 15 min
         //obtain values
             float AirData[3];      
@@ -315,11 +290,13 @@ void loop() {
 
             delay(200);
             if (MainMenuOption == 1) {
+                #ifdef SoilSensCalibr
                 ManualSoilCal();
+                #endif
             }
             #ifdef FanControl
             if (MainMenuOption == 2) {
-                ManualFanSet();
+                //ManualFanSet();               //Option not yet added
             }
             #endif
 
@@ -338,6 +315,36 @@ void loop() {
         lcd.displayOff();
     } 
 }
+
+#ifdef FanControl
+void AutoFanControl(float* AirData){      //Fan control with VPD
+    byte NewFanSpeed;
+
+    // Determine the new fan speed based on AirData
+        if (AirData[1] < 26) {                              //<26ºC -> off
+            NewFanSpeed = 0;
+        } else if (AirData[1] >= 26 && AirData[1] < 28) {   //26-28 -> 10% 
+            NewFanSpeed = 10;
+        } else if (AirData[1] >= 28 && AirData[1] < 30) {   //28-30 -> 20%
+            NewFanSpeed = 20;
+        } else if (AirData[1] >= 30 && AirData[1] < 32) {   //30-32 -> 35%
+            NewFanSpeed = 35;
+        } else if (AirData[1] >= 32) {                      //>32ºC -> 50%
+            NewFanSpeed = 50;
+        }
+
+    //Check if the fan speed needs to change, and print values + change speed   
+        if (FanSpeed != NewFanSpeed) {
+            FanSpeed = NewFanSpeed;
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("Fan ");
+            lcd.print(FanSpeed);
+            lcd.print("%");
+            motor1.drive(FanSpeed * 2.55); // Set the new fan speed
+        }
+}
+#endif
 
 void SoilMeasurement(float* SoilData) {             //Measurements of Soil moisture sensor
     //Sensor measurement creating a total to later calculate average converted to %
@@ -378,7 +385,7 @@ void ReadDHT22(float* AirData) {                //Function to measure air temp. 
         return;
 }
 
-#ifdef Datalogger
+#ifdef Datalog
 void LogData(byte FileNum, byte Datasize, float* DataArray) {
     //Select folder based on FileNum
         char filename[20]; //TODO: not sure if there is a way to optimize
@@ -435,7 +442,7 @@ void ErrorMessages(byte ErNum) {
     lcd.displayOn();
     lcd.clear();
 
-    #ifdef Datalogger   
+    #ifdef Datalog   
     if (ErNum == 1) {          //SD card not present/failed at start
         lcd.print("SD card failed,");
         lcd.setCursor(0, 1);
@@ -680,6 +687,7 @@ void PrintData(byte Datasize, float* DataArray) {
         }
 }
 #endif
+
 /*-----------------------------------   UNUSED CODE ---------------------------------------------
     LEFT HERE FOR FUTURE USE OR WHATEVER
 
@@ -698,6 +706,5 @@ void PrintData(byte Datasize, float* DataArray) {
             sqDevSum += (average - percentArray[i]) * (average - percentArray[i]);
         }
         float stDev = sqrt(sqDevSum / (3 - 1));
-
 
 */
