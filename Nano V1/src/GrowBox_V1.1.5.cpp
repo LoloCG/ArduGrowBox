@@ -506,7 +506,7 @@ byte MainMenu() {       //Shows the main menu, retuens a byte corresponding to t
 
 	byte Options = 0;
 	boolean ExitMenu = false;
-    byte MainMenuOption;    
+    byte MenuOutput;    
 
 	while (!ExitMenu)  { 
         lcd.clear();   
@@ -524,6 +524,7 @@ byte MainMenu() {       //Shows the main menu, retuens a byte corresponding to t
             case 0:                     //Enter button
             	lcd.clear();
                 ExitMenu = true;
+                MenuOutput = Options;
             break;
             case 1:                     //Up key
             Options = Options - 1;
@@ -534,7 +535,7 @@ byte MainMenu() {       //Shows the main menu, retuens a byte corresponding to t
         }
     }
 	lcd.clear();
-    return MainMenuOption;
+    return Options;
 }
 
 #ifdef SoilSensCalibr
