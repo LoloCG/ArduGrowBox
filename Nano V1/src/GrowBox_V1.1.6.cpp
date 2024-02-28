@@ -1,18 +1,19 @@
 /* 
     -This is intended for Arduino NANO 3.0 typically sold in aliexpres
     --------------------------------------------------------------------------------------------------------------------------*/
-#define Version "1.1.6c"
+#define Version "1.1.6e"
 
 //Configuration
     #define LowMemoryMode                   //Disables texts and functions that are less than necessary
-    #define FanControl                      //Enables usage of all Fan related things. Disable when external Fan usage
+    //#define FanControl                      //Enables usage of all Fan related things. Disable when external Fan usage
     //#define SoilSensCalibr                //Enables function to calibrate soil moisture sensor in the menu
-    #define Datalog                     //Enables logging data into SD. Requires RTC module present also
+    //#define Datalog                       //Enables logging data into SD. Requires RTC module present also
+    //#define AutoWater                     //Enables water pump to water the plant. (TODO: If disabled, low humidity level is displayed)
+    #define ButtonTest
 
     #define SoilHumWatering 70              //Threshold of soil humidity to water plant. Depends on sensor, plant and soil.
-    
     #define TimeSoilMeasurement 1800000     //Time between Soil measurements (by default: 1800000 = 30mins)
-    #define TimeAirMeasurement 1800000      //Time between Air measurements (by default: 1800000 = 30mins)
+    #define TimeAirMeasurement 900000      //Time between Air measurements (by default: 900000 = 15mins)
 
 //Libraries
 	#include <Arduino.h>
@@ -42,8 +43,9 @@
     //Constants for the LCD
         #define ARROW_LEFT  0x7E
         LiquidCrystal_I2C lcd(PCF8574_ADDR_A21_A11_A01, 4, 5, 6, 16, 11, 12, 13, 14, POSITIVE);
-        byte MenuOn;
-        boolean PowerSave;
+        boolean MenuOn;
+        boolean PowerSave;          //Turns the display off if true
+
     //Constants for Sensors
         //-------------------------------FOR DHT22 SENSOR-------------------------------//
         #define DHTPIN 5           // Digital pin used
@@ -91,11 +93,15 @@
         void SoilMeasurement(float* SoilData);
         byte MainMenu();
         byte ButtonPress();
+        #ifdef FanControl
         void AutoFanControl(float* AirData);
+        #endif
         //void ManualFanSet();      //Not yet added the option
         void HumidityCheck();
         void ManualSoilCal();
+        #ifdef AutoWater
         void PumpWater();
+        #endif
         void ErrorMessages(byte ErNum);
 
 void setup() { 
@@ -115,8 +121,9 @@ void setup() {
         lcd.print(Version);
         delay(1500);
         
-        MenuOn = 0;
-
+        MenuOn = false;
+        PowerSave = false;          //Powersave mode is set as off at setup
+        ScreenOff = millis();
     //start the SD card
         // see if the card is present and can be initialized:
         #ifdef Datalog
@@ -194,36 +201,39 @@ void setup() {
             OCR1B = 160;
 
         pinMode(BIN2, OUTPUT);      //Used for pin BIN2 of the motor driver, as it requires the use of A1 as digital pin 
-        motor1.drive(10 * 2.55);    //Auto start the fan extractor at 10% speed
+        //motor1.drive(10 * 2.55);    //Auto start the fan extractor at 10% speed
         #endif
-
+        #ifdef AutoWater
         pinMode(A2, OUTPUT);        //AnalogPin 2 is used for water pump
-         
-        PowerSave = false;          //Powersave mode is set as off at setup
-        ScreenOff = millis();
+        #endif 
+    lcd.clear();
+
 }
 
 void loop() {
-    if (millis() - OtherMillis >= 5000 && MenuOn == 0 && !PowerSave) {      //Temp+Hum sensor measurement real time 5000 = 5s
+    if (millis() - OtherMillis >= 5000) {      //Temp+Hum sensor measurement real time 5000 = 5s
         //Obtain RH and Temp values
             float AirData[3];      
             ReadDHT22(AirData);
-
-        //Print into screen
+        //Print into screen if menu is not open, or powersave mode off
+            if (!MenuOn && !PowerSave){
             lcd.clear();
             lcd.print(AirData[0], 1);
             lcd.print(" RH, ");
             lcd.print(AirData[1], 1);
             lcd.print(" C");
 
-            lcd.setCursor(3, 1);
+            lcd.setCursor(1, 1);
             lcd.print(AirData[2],2);
-            lcd.print("kPa VPD");
+            lcd.print(" kPa VPD");
             OtherMillis = millis();
             delay(2500);
-        
+            }
+
         //Send values to Fan control function
+        #ifdef FanControl
             AutoFanControl(AirData);
+        #endif
 
     }
 
@@ -242,6 +252,7 @@ void loop() {
             #endif 
             #endif
         
+        #ifdef AutoWater
         //checks if humidity was lower than a threshold
             if (SoilData[0] <= SoilHumWatering) { 
                 PumpWater();
@@ -249,6 +260,7 @@ void loop() {
                 LogData(3, 1, SoilData);
                 #endif
             }
+        #endif 
         //restarts the counting for next soil humidity datalog
             SoilMesmillis = millis();
     }
@@ -284,7 +296,7 @@ void loop() {
         }
         
         if (millis() - ButtonMillis >= 1000) {   //if 2s has passed then go to the menu
-            MenuOn = 1;
+            MenuOn = true;
             byte MainMenuOption;
             MainMenuOption = MainMenu();
 
@@ -305,12 +317,12 @@ void loop() {
             }
         }
 
-        MenuOn = 0;
+        MenuOn = false;
         ButtonMillis = millis();                //added some time to prompt the air values
         ScreenOff = millis();                   //Restarts the counting or LCD backlight off mode
     }
 
-    if (millis() - ScreenOff >= 60000 && !PowerSave) {      //30000 = 30s. Used to turn off the screen after not touching any button
+    if (millis() - ScreenOff >= 60000 && !PowerSave) {      //Used to turn off the screen after not touching any button
         PowerSave = true;
         lcd.displayOff();
     } 
@@ -337,7 +349,7 @@ void AutoFanControl(float* AirData){      //Fan control with VPD
         if (FanSpeed != NewFanSpeed) {
             FanSpeed = NewFanSpeed;
             lcd.clear();
-            lcd.setCursor(0, 0);
+            lcd.setCursor(3, 0);
             lcd.print("Fan ");
             lcd.print(FanSpeed);
             lcd.print("%");
@@ -615,6 +627,7 @@ void ManualSoilCal() {
 }
 #endif
 
+#ifdef AutoWater
 void PumpWater() {
     lcd.clear();
     lcd.print(" Watering plant");
@@ -630,6 +643,7 @@ void PumpWater() {
     delay(1000);
     #endif
 }
+#endif
 
 void HumidityCheck() {
     lcd.clear();
@@ -654,7 +668,9 @@ void HumidityCheck() {
         delay(4000);
 
         if (keypress == 0) {            //If enter key is pressed
+            #ifdef AutoWater
             PumpWater();
+            #endif
 		}
     }
 }
