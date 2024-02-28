@@ -1,7 +1,7 @@
 /* 
     -This is intended for Arduino NANO 3.0 typically sold in aliexpres
     --------------------------------------------------------------------------------------------------------------------------*/
-#define Version "1.1.6e"
+#define Version "1.1.7a"
 
 //Configuration
     #define LowMemoryMode                   //Disables texts and functions that are less than necessary
@@ -9,7 +9,6 @@
     //#define SoilSensCalibr                //Enables function to calibrate soil moisture sensor in the menu
     //#define Datalog                       //Enables logging data into SD. Requires RTC module present also
     //#define AutoWater                     //Enables water pump to water the plant. (TODO: If disabled, low humidity level is displayed)
-    #define ButtonTest
 
     #define SoilHumWatering 70              //Threshold of soil humidity to water plant. Depends on sensor, plant and soil.
     #define TimeSoilMeasurement 1800000     //Time between Soil measurements (by default: 1800000 = 30mins)
