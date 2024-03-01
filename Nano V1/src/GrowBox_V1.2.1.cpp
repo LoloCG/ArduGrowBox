@@ -1,7 +1,7 @@
 /* 
     -This is intended for Arduino NANO 3.0 typically sold in aliexpres
     --------------------------------------------------------------------------------------------------------------------------*/
-#define Version "1.1.7c"
+#define Version "1.2.1a"
 
 //Configuration
     //Options
@@ -101,21 +101,27 @@
 
 //Function references
     void ReadDHT22(float* AirData);
-    void PrintData(byte Datasize, float* DataArray);
+    void ErrorMessages(byte ErNum);
     void LogData(byte FileNum, byte Datasize, float* DataArray);
     void SoilMeasurement(float* SoilData);
     byte MainMenu();
     byte ButtonPress();
+
     #ifdef FanControl
     void AutoFanControl(float* AirData);
     #endif
-    //void ManualFanSet();      //Not yet added the option
+
     void HumidityCheck();
     void ManualSoilCal();
+
     #ifdef AutoWater
     void PumpWater();
     #endif
-    void ErrorMessages(byte ErNum);
+
+    #if !defined(ExtendVerbose)
+    void PrintData(byte Datasize, float* DataArray);
+    #endif
+
     
 void setup() { 
     //initiate serial
