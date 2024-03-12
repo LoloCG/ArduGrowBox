@@ -1,19 +1,20 @@
 /* 
     -This is intended for Arduino NANO 3.0 typically sold in aliexpres
+    RAM:   [========  ]  82.0% (used 1679 bytes from 2048 bytes)
+    Flash: [========  ]  79.3% (used 24350 bytes from 30720 bytes)
 
     -Basic Functionalities
         [X]-Exhaust fan speed control
         [ ]-Intake fan speed control
         [X]-Temp, Hum%, VPD display
-        [ ]-Soil humidity display and alert
+        [?]-Soil humidity display and alert
         [X]-Datalogging to SD card
         [ ]-Day/Night cycle fan stop
 
     -Optional functionalities
         [ ]-Autowatering
-        [ ]-
     --------------------------------------------------------------------------------------------------------------------------*/
-#define Version "1.2.2a"
+#define Version "1.2.2b"
 
 //Configuration
     //Options
@@ -25,7 +26,7 @@
         //#define AutoWater         //Enable water pump when low soil humidity. If disabled, alert is displayed instead.
     
         //#define SerialPrint       //Used for debug purposes
-        #define ClockSet              //Used to set RTC time. Enable once to set time, then flash the MCU with option disabled.
+        //#define ClockSet              //Used to set RTC time. Enable once to set time, then flash the MCU with option disabled.
 
     //Values
         #define SoilHumWatering 60              //Threshold of soil humidity to water plant. Depends on sensor, plant and soil.
@@ -43,7 +44,7 @@
     #include <SPI.h>                    //required for SD's SPI communication
     #endif
     
-    #if defined(Atmega328) && defined(SoilSensCalibr)
+    #if defined(Atmega328)
     #include <EEPROM.h>
     #endif
     
@@ -85,7 +86,7 @@
             unsigned int LowCal1 : 10;
         } Calvalues;
 
-        int SoilAdress = 0;           //Adress of the EEPROM where calibration values will be stored
+        const int SoilAdress = 0;           //Adress of the EEPROM where calibration values will be stored
         
     //RTC and SD constants
         #ifdef Datalog
@@ -407,7 +408,7 @@ void SoilMeasurement(float* SoilData, bool ReturnAnalog) {             //Measure
     #endif
 
     //Main soil sensor reading loop
-        byte ReadNum = 16;
+        byte ReadNum = 8;
         boolean exit = false;
         int AnalogAvgClean = 0;
         while (!exit) {
@@ -498,7 +499,7 @@ void ReadDHT22(float* AirData) {                //Function to measure air temp. 
     //Calculate VPD
         byte offset = 1;    //Offset of leaf temperature difference from air temperature. 
                             //It is in negative! 1 = -1 ºC difference in leaf temperature!
-        float VPD = (0.61078 * exp((temp - offset) / ((temp - offset) + 237.3) * 17.2694)) - ((0.61078 * exp(temp / (temp + 237.3) * 17.2694)) * RH / 100);
+        float VPD = (0.6108 * exp((temp - offset) / ((temp - offset) + 237.3) * 17.269)) - ((0.6108 * exp(temp / (temp + 237.3) * 17.269)) * RH / 100);
         
     // convert into an array
         AirData[0] = RH;
@@ -530,8 +531,7 @@ void ManualSoilCal() {
 
     //return if pressing other than center
         if (keypress != 0) {           
-            lcd.print("Returning...");
-            delay(1000);
+            ErrorMessages(5);
             return;
         }
 
@@ -770,10 +770,14 @@ void ErrorMessages(byte ErNum) {
         Freeze = true;         
     }
     #endif
+
     if (ErNum == 4) {
         lcd.print(" Option Disabled");
     }
 
+    if (ErNum == 5) {
+        lcd.print("Returning...");
+    }
     //Freezes controller indefinetly or delays to display error
         if (Freeze == true){
             while (1) {}
@@ -874,8 +878,7 @@ byte MainMenu() {       //Shows the main menu, returns a byte corresponding to t
             case 0:                     //Enter button
             	if (Options == 0){      //if the menu was 0 (return) then go back
                 lcd.clear();
-                lcd.print("Returning...");
-                delay(1500);
+                ErrorMessages(1);
                 MenuOutput = Options;
                 } 
                 else {                  //else return with the menuoutput which is equal to the option number
