@@ -13,24 +13,23 @@
         [ ]-Autowatering
         [ ]-
     --------------------------------------------------------------------------------------------------------------------------*/
-#define Version "1.2.1c"
+#define Version "1.2.2a"
 
 
 //Configuration
     //Options
         #define Atmega328
         
-
         #define FanControl              //Enables usage of all Fan related things. Disable when external Fan usage
         #define SoilSensCalibr        //Enables function to calibrate soil moisture sensor in the menu
         //#define Datalog                 //Enables logging data into SD. Requires RTC module present also
         //#define AutoWater         //Enable water pump when low soil humidity. If disabled, alert is displayed instead.
     
-        //#define SerialPrint       //Used for debug purposes
+        #define SerialPrint       //Used for debug purposes
         //#define ClockSet              //Used to set RTC time. Enable once to set time, then flash the MCU with option disabled.
 
     //Values
-        #define SoilHumWatering 50              //Threshold of soil humidity to water plant. Depends on sensor, plant and soil.
+        #define SoilHumWatering 60              //Threshold of soil humidity to water plant. Depends on sensor, plant and soil.
         #define TimeSoilMeasurement 1800000     //Time between Soil measurements (by default: 1800000 = 30mins)
         #define TimeAirMeasurement 900000       //Time between Air measurements (by default: 900000 = 15mins)
 //Libraries
@@ -102,7 +101,7 @@
         const int offsetA = 1;
         const int offsetB = 1;
 
-        #define STBY A2                             //Not actually used here... DEBUG: but requires a pin to be used. Doesnt seem to affect anything...
+        #define STBY A3                             //Not actually used here... DEBUG: but requires a pin to be used. Doesnt seem to affect anything...
         //pins for the motor1
             #define AIN1 7
             #define AIN2 6
@@ -257,12 +256,8 @@ void loop() {
         lcd.clear();
         lcd.print("Soil humid. Low");
         lcd.setCursor(0,1);
-        lcd.print("press to reset");
+        lcd.print("Water plant...");
         MenuOn = true;
-         
-    	byte keypress;
-		keypress = ButtonPress();           //Returns the key that was pressed
-
     }
     #endif
 
@@ -319,14 +314,15 @@ void loop() {
                 #ifndef AutoWater
                 LowSoilHAlert = true;
                 #endif
-            }   
+            }   else {
+                LowSoilHAlert = false;
+            }
              
-            
         //restarts the counting for next soil humidity datalog
             SoilMesmillis = millis();
     }
     
-    #ifdef Datalog           //Right now, function only serves datalogging purposes
+    #ifdef Datalog                          //Right now, function only serves datalogging purposes
     if (millis() - AirMesmillis >= 900000) {       //Temp+Hum sensor measurement 900000 = 15 min
         //obtain values
             float AirData[3];      
@@ -432,7 +428,6 @@ void AutoFanControl(float* AirData){      //Fan control with VPD
 
 void FanSpeedAdjust(){
     boolean ExitMenu = false; 
-
     while(!ExitMenu) {
         lcd.clear();
         lcd.print("Adjust fan speed: ");
@@ -815,7 +810,7 @@ void ManualSoilCal() {
     //display instructions
         #ifdef SerialPrint
             Serial.print("------------------------------------");
-            Serial.println("Starting calibration...")
+            Serial.println("Starting calibration...");
         #endif
 
         lcd.clear();
@@ -824,11 +819,6 @@ void ManualSoilCal() {
         lcd.setCursor(0, 1);
         lcd.print(" Then wet soil");
         delay(3000);
-        /*
-        int Analog1 = analogRead(SPin1);            
-        Calvalues.LowCal1 = Analog1;
-        Calvalues.HighCal1 = Analog1;
-        */
 
         lcd.clear();
         lcd.print("Press when calbr");
@@ -973,6 +963,33 @@ void HumidityCheck() {
     #endif
 }
 
+
+
+/*-----------------------------------   UNUSED CODE ---------------------------------------------
+    LEFT HERE FOR FUTURE USE OR WHATEVER
+
+    //this was used for compilatign multiple sensors Data into same array to store them all together.
+
+        float SoilIntArray[4];
+        for (int i = 0; i < 2; i++) {
+            SoilIntArray[i] = Soil1Data[i];
+            SoilIntArray[i + 2] = Soil2Data[i];
+        }
+    
+    //this was used for calculating standard deviation from the 3 values of soil measurement %
+         
+        float sqDevSum = 0;
+        for (int i = 0; i < 3; i++) {
+            sqDevSum += (average - percentArray[i]) * (average - percentArray[i]);
+        }
+        float stDev = sqrt(sqDevSum / (3 - 1));
+
+        #ifdef SoilSensNoise
+        lcd.setCursor(3, 1);
+        lcd.print(SoilData[1],2);
+        lcd.print(" StDev");
+        #endif
+
 #ifdef SerialPrint
 void PrintData(byte Datasize, float* DataArray) {
     //When the function is called, it includes the size of data array in a byte number format, and the array with data to save
@@ -1001,30 +1018,4 @@ void PrintData(byte Datasize, float* DataArray) {
         }
 }
 #endif
-
-/*-----------------------------------   UNUSED CODE ---------------------------------------------
-    LEFT HERE FOR FUTURE USE OR WHATEVER
-
-    //this was used for compilatign multiple sensors Data into same array to store them all together.
-
-        float SoilIntArray[4];
-        for (int i = 0; i < 2; i++) {
-            SoilIntArray[i] = Soil1Data[i];
-            SoilIntArray[i + 2] = Soil2Data[i];
-        }
-    
-    //this was used for calculating standard deviation from the 3 values of soil measurement %
-         
-        float sqDevSum = 0;
-        for (int i = 0; i < 3; i++) {
-            sqDevSum += (average - percentArray[i]) * (average - percentArray[i]);
-        }
-        float stDev = sqrt(sqDevSum / (3 - 1));
-
-        #ifdef SoilSensNoise
-        lcd.setCursor(3, 1);
-        lcd.print(SoilData[1],2);
-        lcd.print(" StDev");
-        #endif
-        
 */
