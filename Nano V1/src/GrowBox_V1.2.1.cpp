@@ -471,7 +471,7 @@ void FanSpeedAdjust(){
 #endif
 
 //TODO: maybe change from float to int, to reduce memory consumption
-void SoilMeasurement(float* SoilData) {             //Measurements of Soil moisture sensor
+void SoilMeasurement(float* SoilData) {             //Measures the soil humidity
     #ifdef SerialPrint  
     Serial.println("------------------------");
     Serial.println("measurement commenced:");
@@ -486,8 +486,8 @@ void SoilMeasurement(float* SoilData) {             //Measurements of Soil moist
         Serial.println(GetCal1.HighCal1);       //high humidity = lower number
         #endif
 
-    //Captures sensor data and transforms into %
-        byte ReadNum = 16;
+    //Captures sensor data analog values and transforms into %
+        byte ReadNum = 16;  //Uses 16 readings for the average
         float average;
         boolean exit = false;
         byte offsetCal = 0.05;
@@ -500,11 +500,11 @@ void SoilMeasurement(float* SoilData) {             //Measurements of Soil moist
             #ifdef SerialPrint
             Serial.println("Analog value + mapped %: ");
             #endif
-            //int weight[] = { 12,8,8,8,6,8,8,8}; //Not used here, Outlier discard seems better idea
             for (int i = 0; i < ReadNum; i++) {
                 sensorReadings[i] = analogRead(SPin1);
                 percentArray[i] = map(sensorReadings[i], GetCal1.HighCal1*(1 + offsetCal), GetCal1.LowCal1*(1 - offsetCal), 100, 0);
                 total += percentArray[i];
+
                 #ifdef SerialPrint
                 Serial.print(sensorReadings[i]);
                 Serial.print(", ");
@@ -512,6 +512,7 @@ void SoilMeasurement(float* SoilData) {             //Measurements of Soil moist
                 Serial.println("");
                 #endif
             }
+
             #ifdef SerialPrint
             Serial.print("total/readings: ");
             Serial.println(total/ReadNum);
@@ -661,31 +662,31 @@ void ErrorMessages(byte ErNum) {
 }
 
 byte ButtonPress() {
-        //Loop that senses duration of button press to filter noise from signal.
-            //Waits for button press, starts timer and captures analog value, 
-            // resumes when button is no longer pressed, exits the loop selecting 
-            // the type of button press.
-            //boolean LongPress;
-            int val;
-            boolean Noise = true;
-            while (Noise == true) {
-                while (analogRead(KeypadPin) > 1000) {		
-                    delay(1);
-                } 
-                ButtonMillis = millis();
-                val = analogRead(KeypadPin);
-            	while (analogRead(KeypadPin) < 1000) {
-			        delay(1);
-		        }
-
-                if (millis() - ButtonMillis >= 50 && millis() - ButtonMillis < 1000) {
-                    //LongPress = false;
-                    Noise = false;
-                } else if (millis() - ButtonMillis > 1000) {
-                    //LongPress = true;
-                    Noise = false;
-                }
+    //Loop that senses duration of button press to filter noise from signal.
+        //Waits for button press, starts timer and captures analog value, 
+        // resumes when button is no longer pressed, exits the loop selecting 
+        // the type of button press.
+        //boolean LongPress;
+        int val;
+        boolean Noise = true;
+        while (Noise == true) {
+            while (analogRead(KeypadPin) > 1000) {		
+                delay(1);
+            } 
+            ButtonMillis = millis();
+            val = analogRead(KeypadPin);
+            while (analogRead(KeypadPin) < 1000) {
+                delay(1);
             }
+
+            if (millis() - ButtonMillis >= 50 && millis() - ButtonMillis < 1000) {
+                //LongPress = false;
+                Noise = false;
+            } else if (millis() - ButtonMillis > 1000) {
+                //LongPress = true;
+                Noise = false;
+            }
+        }
             
 	//saves analog value and with a loop finds closest threshold to set it to the determined key
 	    //Sets the values for analog thresholds and keypad 
