@@ -119,9 +119,11 @@
     void ReadDHT22(float* AirData);
     void ErrorMessages(byte ErNum);
     void LogData(byte FileNum, byte Datasize, float* DataArray);
-    void SoilMeasurement(float* SoilData, bool ReturnAnalog);
+    void GetSoilData(float* SoilData, bool ReturnAnalog);
     byte MainMenu();
     byte ButtonPress();
+    void OpenSecMenu(byte MenuOutput);
+    void SoilMeasurement();
 
     #ifdef FanControl
     void AutoFanControl(float* AirData);
@@ -254,9 +256,9 @@ void loop() {
     #ifndef AutoWater
     if (LowSoilHAlert) {
         lcd.clear();
-        lcd.print("Soil humid. Low");
+        lcd.print(F("Soil humid. Low"));
         lcd.setCursor(0,1);
-        lcd.print("Water plant...");
+        lcd.print(F("Water plant..."));
         MenuOn = true;
     }
     #endif
@@ -288,37 +290,7 @@ void loop() {
     }
 
     if (millis() - SoilMesmillis >= TimeSoilMeasurement) {      //Soil sensor measurement 1800000 = 30 mins
-        //Takes data from the function
-            float SoilData[1];
-            SoilMeasurement(SoilData, false);    
-
-
-        //Logs data into SD card and prints it in the screen
-            #ifdef Datalog
-            LogData(1, 1, SoilData);
-            delay(2000);
-            #ifdef SerialPrint
-            PrintData(2, SoilData);  
-            delay(2000);
-            #endif
-            #endif
-        
-        
-        //checks if humidity was lower than a threshold
-            if (SoilData[0] <= SoilHumWatering) { 
-                #ifdef AutoWater
-                PumpWater();
-                #ifdef Datalog
-                LogData(3, 1, SoilData);
-                #endif
-                #endif
-                #ifndef AutoWater
-                LowSoilHAlert = true;
-                #endif
-            }   else {
-                LowSoilHAlert = false;
-            }
-             
+        SoilMeasurement();
         //restarts the counting for next soil humidity datalog
             SoilMesmillis = millis();
     }
@@ -357,33 +329,8 @@ void loop() {
             MenuOn = true;
             byte MenuOutput;
             MenuOutput = MainMenu();
-
-            delay(200);
-            switch (MenuOutput) {
-                case 1:                     //Manual Soil Calibration 
-                    #ifdef SoilSensCalibr
-                    ManualSoilCal();
-                    #endif
-                    #ifndef SoilSensCalibr
-                    ErrorMessages(4);
-                    #endif
-                break;
-
-                case 2:                   
-                    HumidityCheck();
-                break;
-
-                case 3: 
-                    #ifdef FanControl
-                    FanSpeedAdjust();
-                    #endif
-
-                    #ifndef FanControl
-                    ErrorMessages(4);
-                    #endif
-                break;
-
-            }
+            
+            OpenSecMenu(MenuOutput);
         }
 
         MenuOn = false;
@@ -401,10 +348,10 @@ void loop() {
 ________________________________________SENSORS_______________________________________
 ======================================================================================*/
 
-void SoilMeasurement(float* SoilData, bool ReturnAnalog) {             //Measures the soil humidity
+void GetSoilData(float* SoilData, bool ReturnAnalog) {             //Measures the soil humidity
     #ifdef SerialPrint  
-    Serial.println("------------------------");
-    Serial.println("measurement commenced:");
+    Serial.println(F("------------------------"));
+    Serial.println(F("measurement commenced:"));
     #endif
 
     //Main soil sensor reading loop
@@ -489,6 +436,40 @@ void SoilMeasurement(float* SoilData, bool ReturnAnalog) {             //Measure
     }
 }
 
+void SoilMeasurement(){
+    //Takes data from the function
+        float SoilData[1];
+        GetSoilData(SoilData, false);    
+
+
+    //Logs data into SD card and prints it in the screen
+        #ifdef Datalog
+        LogData(1, 1, SoilData);
+        delay(2000);
+        #ifdef SerialPrint
+        PrintData(2, SoilData);  
+        delay(2000);
+        #endif
+        #endif
+    
+    
+    //checks if humidity was lower than a threshold
+        if (SoilData[0] <= SoilHumWatering) { 
+            #ifdef AutoWater
+            PumpWater();
+            #ifdef Datalog
+            LogData(3, 1, SoilData);
+            #endif
+            #endif
+            #ifndef AutoWater
+            LowSoilHAlert = true;
+            #endif
+        }   else {
+            LowSoilHAlert = false;
+        }
+             
+}
+
 void ReadDHT22(float* AirData) {                //Function to measure air temp. and humidity
     //Read data and store it to variables hum and temp
         float RH;   //Stores humidity value
@@ -516,7 +497,7 @@ void ManualSoilCal() {
 
     //Print the saved calibration values
         lcd.clear();
-        lcd.print("Current values:");
+        lcd.print(F("Current values:"));
         lcd.setCursor(0,1);
         lcd.print("U: ");
         lcd.print(GetCal1.LowCal1);
@@ -525,7 +506,7 @@ void ManualSoilCal() {
         delay(2000);
         
         lcd.setCursor(0,0);
-        lcd.print("Calibrate now?"); 
+        lcd.print(F("Calibrate now?")); 
         byte keypress;
         keypress = ButtonPress();
 
@@ -543,22 +524,22 @@ void ManualSoilCal() {
 
         lcd.clear();
         lcd.setCursor(0, 0);
-        lcd.print("Put in Dry soil");
+        lcd.print(F("Put in Dry soil"));
         lcd.setCursor(0, 1);
-        lcd.print(" Then wet soil");
+        lcd.print(F(" Then wet soil"));
         delay(3000);
 
         lcd.clear();
-        lcd.print("Press when calbr");
+        lcd.print(F("Press when calbr"));
         lcd.setCursor(0, 1);
-        lcd.print("is completed...");
+        lcd.print(F("is completed..."));
         delay(3000);
 
     //Calibration Loop
         bool Stable = false;
         while (!Stable) {
             float SoilData[1];
-            SoilMeasurement(SoilData, true); 
+            GetSoilData(SoilData, true); 
 
             lcd.clear();
             lcd.setCursor(0, 0);
@@ -602,15 +583,15 @@ void ManualSoilCal() {
 void HumidityCheck() {
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("Measuring soil...");
+    lcd.print(F("Measuring soil..."));
 
     float SoilData[1];
-    SoilMeasurement(SoilData, false); 
+    GetSoilData(SoilData, false); 
 
     lcd.clear();
     lcd.setCursor(1, 0);
     lcd.print(SoilData[0],0);
-    lcd.print(" % humidity");
+    lcd.print(F(" % humidity"));
 
    
     #ifdef AutoWater
@@ -644,7 +625,7 @@ ________________________________________FANS/PUMP_______________________________
 ======================================================================================*/
 
 #ifdef FanControl
-void AutoFanControl(float* AirData){      //Fan control with VPD   
+void AutoFanControl(float* AirData){                    //Fan control with VPD   
     // Determine the new fan speed based on AirData
        byte NewFanSpeed = map(AirData[1], 24, 35, 5, 95);
 
@@ -677,7 +658,7 @@ void FanSpeedAdjust(){
     boolean ExitMenu = false; 
     while(!ExitMenu) {
         lcd.clear();
-        lcd.print("Adjust fan speed: ");
+        lcd.print(F("Adjust fan speed: "));
         lcd.setCursor(5,1);
         //lcd.print("+");
         lcd.print(FanSpeedAdjst);
@@ -723,7 +704,7 @@ void PumpWater() {
     digitalWrite(A2, HIGH);
     while (!WaterStop) {
             float SoilData[1];
-            SoilMeasurement(SoilData, false);
+            GetSoilData(SoilData, false);
         delay(5000);
         if (SoilData[0] >= 90 || millis() - OtherMillis >= 30000) {
             WaterStop = true;
@@ -838,7 +819,6 @@ byte ButtonPress() {
         //return LongPress;
 }
 
-
 byte MainMenu() {       //Shows the main menu, returns a byte corresponding to the option selected
     const char* MainMenuOptions[] = {
         "Return",           //0
@@ -878,7 +858,7 @@ byte MainMenu() {       //Shows the main menu, returns a byte corresponding to t
             case 0:                     //Enter button
             	if (Options == 0){      //if the menu was 0 (return) then go back
                 lcd.clear();
-                ErrorMessages(1);
+                ErrorMessages(5);
                 MenuOutput = Options;
                 } 
                 else {                  //else return with the menuoutput which is equal to the option number
@@ -908,6 +888,35 @@ byte MainMenu() {       //Shows the main menu, returns a byte corresponding to t
     }
 	lcd.clear();
     return MenuOutput;
+}
+
+void OpenSecMenu(byte MenuOutput){
+
+    switch (MenuOutput) {
+    case 1:                  
+        #ifdef SoilSensCalibr
+        ManualSoilCal();
+        #endif
+        #ifndef SoilSensCalibr
+        ErrorMessages(4);
+        #endif
+    break;
+
+    case 2:                   
+        HumidityCheck();
+    break;
+
+    case 3: 
+        #ifdef FanControl
+        FanSpeedAdjust();
+        #endif
+
+        #ifndef FanControl
+        ErrorMessages(4);
+        #endif
+    break;
+
+    }
 }
 
 /*====================================================================================
