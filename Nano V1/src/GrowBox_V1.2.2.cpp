@@ -14,7 +14,7 @@
     -Optional functionalities
         [ ]-Autowatering
     --------------------------------------------------------------------------------------------------------------------------*/
-#define Version "1.2.2b"
+#define Version "1.2.2c"
 
 //Configuration
     //Options
@@ -147,6 +147,9 @@ void setup() {
         Serial.begin(9600);
         while (!Serial) {}
 
+        #ifdef SerialPrint
+            Serial.println(F("Initiating Program"));
+        #endif
     //Initiate LCD screen
         while (lcd.begin(16, 2, LCD_5x8DOTS) != 1) {    //colums, rows, characters size
             Serial.println(F("PCF8574 is not connected or lcd pins declaration is wrong. Only pins numbers: 4,5,6,16,11,12,13,14 are legal."));
@@ -223,7 +226,7 @@ void setup() {
         #endif
     //Set fan control and water pump parameters
         #ifdef FanControl
-        pinMode(10,OUTPUT);
+        pinMode(10, OUTPUT);
         pinMode(9, OUTPUT);
 
         //Set PWM frequency 25khz on pins 9,10 (timer 1 mode 10, no prescale, count to 320)
@@ -527,7 +530,7 @@ void ManualSoilCal() {
         lcd.print(F("Put in Dry soil"));
         lcd.setCursor(0, 1);
         lcd.print(F(" Then wet soil"));
-        delay(3000);
+        //delay(3000);
 
         lcd.clear();
         lcd.print(F("Press when calbr"));
@@ -535,14 +538,22 @@ void ManualSoilCal() {
         lcd.print(F("is completed..."));
         delay(3000);
 
+    //Set measurement as upper/lower
+
+        float SoilData[1];
+        GetSoilData(SoilData, true); 
+        Calvalues.LowCal1 = SoilData[0];
+        Calvalues.HighCal1 = SoilData[0];
+        #ifdef SerialPrint
+            Serial.println(F("Setting current values as upper and lower"));
+            Serial.println(SoilData[0]);
+        #endif
     //Calibration Loop
         bool Stable = false;
         while (!Stable) {
-            float SoilData[1];
             GetSoilData(SoilData, true); 
 
             lcd.clear();
-            lcd.setCursor(0, 0);
             lcd.print(" U: ");
             lcd.print(Calvalues.LowCal1);
             lcd.print(", L: ");
@@ -628,10 +639,20 @@ ________________________________________FANS/PUMP_______________________________
 void AutoFanControl(float* AirData){                    //Fan control with VPD   
     // Determine the new fan speed based on AirData
        byte NewFanSpeed = map(AirData[1], 24, 35, 5, 95);
-
-    //Check if the fan speed needs to change
-        if (abs((FanSpeed) - (NewFanSpeed + FanSpeedAdjst)) > 2 || AirData[1] >= 24) {
-
+    
+        //Check if the fan speed needs to change
+        if (abs((FanSpeed) - (NewFanSpeed + FanSpeedAdjst)) > 2 && AirData[1] >= 24) {
+            #ifdef SerialPrint
+            Serial.println(F("--------------------------------"));
+            Serial.print(F("AirData[1]:"));
+            Serial.println(AirData[1]);
+            Serial.print(F("NewFanSpeed:"));
+            Serial.println(NewFanSpeed);
+            Serial.print(F("FanSpeedAdjst:"));
+            Serial.println(FanSpeedAdjst);
+            Serial.print("abs((FanSpeed) - (NewFanSpeed + FanSpeedAdjst)) = ");
+            Serial.println(abs((FanSpeed) - (NewFanSpeed + FanSpeedAdjst)));
+            #endif
             if ((NewFanSpeed + FanSpeedAdjst) < 10  || AirData[1] < 24) {       
                 FanSpeed = 0;
             } 
@@ -643,7 +664,11 @@ void AutoFanControl(float* AirData){                    //Fan control with VPD
             else { 
                 FanSpeed = NewFanSpeed + FanSpeedAdjst;
             }
-    
+
+        #ifdef SerialPrint
+            Serial.print(F("Final fan speed:"));
+            Serial.println(FanSpeed);
+        #endif
     //Apply the speed and print the values
         lcd.clear();
         lcd.setCursor(3, 0);
@@ -826,7 +851,9 @@ byte MainMenu() {       //Shows the main menu, returns a byte corresponding to t
         "Soil Humidity",    //2
         "Fan Speed Adjst"   //3
     };
-    
+    #ifdef SerialPrint
+        Serial.println(F("Entering menu"));
+    #endif
     byte MaxOptions = 4;        //!!! adjust this based on the number of menu options (counting nº0)
 	byte Options = 0;           //this sets the starting menu option
 	boolean ExitMenu = false;
