@@ -1,20 +1,20 @@
 /* 
     -This is intended for Arduino NANO 3.0 typically sold in aliexpres
+    RAM:   [========  ]  82.0% (used 1679 bytes from 2048 bytes)
+    Flash: [========  ]  79.3% (used 24350 bytes from 30720 bytes)
 
     -Basic Functionalities
         [X]-Exhaust fan speed control
         [ ]-Intake fan speed control
         [X]-Temp, Hum%, VPD display
-        [ ]-Soil humidity display and alert
+        [?]-Soil humidity display and alert
         [X]-Datalogging to SD card
         [ ]-Day/Night cycle fan stop
 
     -Optional functionalities
         [ ]-Autowatering
-        [ ]-
     --------------------------------------------------------------------------------------------------------------------------*/
-#define Version "1.2.1"
-
+#define Version "1.2.2"
 
 //Configuration
     //Options
@@ -22,10 +22,10 @@
         
         #define FanControl              //Enables usage of all Fan related things. Disable when external Fan usage
         #define SoilSensCalibr        //Enables function to calibrate soil moisture sensor in the menu
-        //#define Datalog                 //Enables logging data into SD. Requires RTC module present also
+        #define Datalog                 //Enables logging data into SD. Requires RTC module present also
         //#define AutoWater         //Enable water pump when low soil humidity. If disabled, alert is displayed instead.
     
-        #define SerialPrint       //Used for debug purposes
+        //#define SerialPrint       //Used for debug purposes
         //#define ClockSet              //Used to set RTC time. Enable once to set time, then flash the MCU with option disabled.
 
     //Values
@@ -44,7 +44,7 @@
     #include <SPI.h>                    //required for SD's SPI communication
     #endif
     
-    #if defined(Atmega328) && defined(SoilSensCalibr)
+    #if defined(Atmega328)
     #include <EEPROM.h>
     #endif
     
@@ -86,7 +86,7 @@
             unsigned int LowCal1 : 10;
         } Calvalues;
 
-        int SoilAdress = 0;           //Adress of the EEPROM where calibration values will be stored
+        const int SoilAdress = 0;           //Adress of the EEPROM where calibration values will be stored
         
     //RTC and SD constants
         #ifdef Datalog
@@ -119,9 +119,11 @@
     void ReadDHT22(float* AirData);
     void ErrorMessages(byte ErNum);
     void LogData(byte FileNum, byte Datasize, float* DataArray);
-    void SoilMeasurement(float* SoilData);
+    void GetSoilData(float* SoilData, bool ReturnAnalog);
     byte MainMenu();
     byte ButtonPress();
+    void OpenSecMenu(byte MenuOutput);
+    void SoilMeasurement();
 
     #ifdef FanControl
     void AutoFanControl(float* AirData);
@@ -145,6 +147,9 @@ void setup() {
         Serial.begin(9600);
         while (!Serial) {}
 
+        #ifdef SerialPrint
+            Serial.println(F("Initiating Program"));
+        #endif
     //Initiate LCD screen
         while (lcd.begin(16, 2, LCD_5x8DOTS) != 1) {    //colums, rows, characters size
             Serial.println(F("PCF8574 is not connected or lcd pins declaration is wrong. Only pins numbers: 4,5,6,16,11,12,13,14 are legal."));
@@ -221,7 +226,7 @@ void setup() {
         #endif
     //Set fan control and water pump parameters
         #ifdef FanControl
-        pinMode(10,OUTPUT);
+        pinMode(10, OUTPUT);
         pinMode(9, OUTPUT);
 
         //Set PWM frequency 25khz on pins 9,10 (timer 1 mode 10, no prescale, count to 320)
@@ -254,9 +259,9 @@ void loop() {
     #ifndef AutoWater
     if (LowSoilHAlert) {
         lcd.clear();
-        lcd.print("Soil humid. Low");
+        lcd.print(F("Soil humid. Low"));
         lcd.setCursor(0,1);
-        lcd.print("Water plant...");
+        lcd.print(F("Water plant..."));
         MenuOn = true;
     }
     #endif
@@ -288,36 +293,7 @@ void loop() {
     }
 
     if (millis() - SoilMesmillis >= TimeSoilMeasurement) {      //Soil sensor measurement 1800000 = 30 mins
-        //Takes data from the function
-            float SoilData[1];
-            SoilMeasurement(SoilData); 
-
-        //Logs data into SD card and prints it in the screen
-            #ifdef Datalog
-            LogData(1, 1, SoilData);
-            delay(2000);
-            #ifdef SerialPrint
-            PrintData(2, SoilData);  
-            delay(2000);
-            #endif
-            #endif
-        
-        
-        //checks if humidity was lower than a threshold
-            if (SoilData[0] <= SoilHumWatering) { 
-                #ifdef AutoWater
-                PumpWater();
-                #ifdef Datalog
-                LogData(3, 1, SoilData);
-                #endif
-                #endif
-                #ifndef AutoWater
-                LowSoilHAlert = true;
-                #endif
-            }   else {
-                LowSoilHAlert = false;
-            }
-             
+        SoilMeasurement();
         //restarts the counting for next soil humidity datalog
             SoilMesmillis = millis();
     }
@@ -356,33 +332,8 @@ void loop() {
             MenuOn = true;
             byte MenuOutput;
             MenuOutput = MainMenu();
-
-            delay(200);
-            switch (MenuOutput) {
-                case 1:                     //Manual Soil Calibration 
-                    #ifdef SoilSensCalibr
-                    ManualSoilCal();
-                    #endif
-                    #ifndef SoilSensCalibr
-                    ErrorMessages(4);
-                    #endif
-                break;
-
-                case 2:                   
-                    HumidityCheck();
-                break;
-
-                case 3: 
-                    #ifdef FanControl
-                    FanSpeedAdjust();
-                    #endif
-
-                    #ifndef FanControl
-                    ErrorMessages(4);
-                    #endif
-                break;
-
-            }
+            
+            OpenSecMenu(MenuOutput);
         }
 
         MenuOn = false;
@@ -396,14 +347,312 @@ void loop() {
     } 
 }
 
+/*====================================================================================
+________________________________________SENSORS_______________________________________
+======================================================================================*/
+
+void GetSoilData(float* SoilData, bool ReturnAnalog) {             //Measures the soil humidity
+    #ifdef SerialPrint  
+    Serial.println(F("------------------------"));
+    Serial.println(F("measurement commenced:"));
+    #endif
+
+    //Main soil sensor reading loop
+        byte ReadNum = 8;
+        boolean exit = false;
+        int AnalogAvgClean = 0;
+        while (!exit) {
+            //Takes analog values of soil sensor and joins them in an array + sums into "AnalogAvg"
+                #ifdef SerialPrint
+                Serial.println("Analog values: ");
+                #endif
+                int sensorReadings[ReadNum];
+                int AnalogAvg = 0;
+                for (int i = 0; i < ReadNum; i++) {
+                    sensorReadings[i] = analogRead(SPin1);
+                    AnalogAvg += sensorReadings[i];
+                    
+                    #ifdef SerialPrint
+                    Serial.print(sensorReadings[i]);
+                    Serial.print(", ");
+                    #endif
+                }
+                AnalogAvg /= ReadNum;
+                        
+                #ifdef SerialPrint
+                Serial.println("");
+                Serial.print("average reading: ");
+                Serial.println(AnalogAvg);
+                #endif
+
+            //Counts how many are within the threshold, then creates an average with those ("AnalogAvgClean")
+                byte ValidCount = 0;
+                
+                for (byte i = 0; i < ReadNum; i++) {
+                    if (abs(sensorReadings[i] - (AnalogAvg)) < ((AnalogAvg)*0.05)) {
+                            AnalogAvgClean += sensorReadings[i];
+                            ValidCount++;
+                    }
+                }
+                AnalogAvgClean /= ValidCount;
+                #ifdef SerialPrint
+                Serial.print("Valid Count: ");
+                Serial.println(ValidCount);
+                Serial.print("Final Analog AVG: ");
+                Serial.println(AnalogAvgClean);
+                #endif
+            
+            //Loops if the count is less than half
+                if (ValidCount >= ValidCount/2) {
+                    exit = true;
+                    #ifdef SerialPrint
+                    Serial.println("Exit measurement loop");
+                    #endif
+                }
+        }
+    //Returns if Analog values required    
+        if(ReturnAnalog == true) {
+            SoilData[0] = AnalogAvgClean;
+        } else {
+    //Retrieve from EEPROM old values of Max and min
+        SoilCal GetCal1;
+        EEPROM.get(SoilAdress, GetCal1);
+        
+        #ifdef SerialPrint
+        Serial.print("LowCal (0%): ");
+        Serial.println(GetCal1.LowCal1);        //low humidity = higher number 
+        Serial.print("HighCal (100%): ");
+        Serial.println(GetCal1.HighCal1);       //high humidity = lower number
+        #endif
+
+    //Converts the Analog value into %
+        byte offsetCal = 0.05;
+        float SoilPercent = map(AnalogAvgClean, GetCal1.HighCal1*(1 + offsetCal), GetCal1.LowCal1*(1 - offsetCal), 100, 0);
+        SoilData[0] = SoilPercent;
+
+
+       #ifdef SerialPrint
+        Serial.print("Final % value: ");
+        Serial.println(SoilData[0]);
+        Serial.println("------------------------");
+        #endif
+    }
+}
+
+void SoilMeasurement(){
+    //Takes data from the function
+        float SoilData[1];
+        GetSoilData(SoilData, false);    
+
+
+    //Logs data into SD card and prints it in the screen
+        #ifdef Datalog
+        LogData(1, 1, SoilData);
+        delay(2000);
+        #ifdef SerialPrint
+        PrintData(2, SoilData);  
+        delay(2000);
+        #endif
+        #endif
+    
+    
+    //checks if humidity was lower than a threshold
+        if (SoilData[0] <= SoilHumWatering) { 
+            #ifdef AutoWater
+            PumpWater();
+            #ifdef Datalog
+            LogData(3, 1, SoilData);
+            #endif
+            #endif
+            #ifndef AutoWater
+            LowSoilHAlert = true;
+            #endif
+        }   else {
+            LowSoilHAlert = false;
+        }
+             
+}
+
+void ReadDHT22(float* AirData) {                //Function to measure air temp. and humidity
+    //Read data and store it to variables hum and temp
+        float RH;   //Stores humidity value
+        float temp;  //Stores temperature value
+        RH = dht.readHumidity();
+        temp = dht.readTemperature();
+    
+    //Calculate VPD
+        byte offset = 1;    //Offset of leaf temperature difference from air temperature. 
+                            //It is in negative! 1 = -1 ºC difference in leaf temperature!
+        float VPD = (0.6108 * exp((temp - offset) / ((temp - offset) + 237.3) * 17.269)) - ((0.6108 * exp(temp / (temp + 237.3) * 17.269)) * RH / 100);
+        
+    // convert into an array
+        AirData[0] = RH;
+        AirData[1] = temp;
+        AirData[2] = VPD;
+        return;
+}
+
+#ifdef SoilSensCalibr
+void ManualSoilCal() {
+    //Retrieve current values from EEPROM
+        SoilCal GetCal1;
+        EEPROM.get(SoilAdress, GetCal1);
+
+    //Print the saved calibration values
+        lcd.clear();
+        lcd.print(F("Current values:"));
+        lcd.setCursor(0,1);
+        lcd.print("U: ");
+        lcd.print(GetCal1.LowCal1);
+        lcd.print(", L: ");
+        lcd.print(GetCal1.HighCal1);
+        delay(2000);
+        
+        lcd.setCursor(0,0);
+        lcd.print(F("Calibrate now?")); 
+        byte keypress;
+        keypress = ButtonPress();
+
+    //return if pressing other than center
+        if (keypress != 0) {           
+            ErrorMessages(5);
+            return;
+        }
+
+    //display instructions
+        #ifdef SerialPrint
+            Serial.print("------------------------------------");
+            Serial.println("Starting calibration...");
+        #endif
+
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print(F("Put in Dry soil"));
+        lcd.setCursor(0, 1);
+        lcd.print(F(" Then wet soil"));
+        //delay(3000);
+
+        lcd.clear();
+        lcd.print(F("Press when calbr"));
+        lcd.setCursor(0, 1);
+        lcd.print(F("is completed..."));
+        delay(3000);
+
+    //Set measurement as upper/lower
+
+        float SoilData[1];
+        GetSoilData(SoilData, true); 
+        Calvalues.LowCal1 = SoilData[0];
+        Calvalues.HighCal1 = SoilData[0];
+        #ifdef SerialPrint
+            Serial.println(F("Setting current values as upper and lower"));
+            Serial.println(SoilData[0]);
+        #endif
+    //Calibration Loop
+        bool Stable = false;
+        while (!Stable) {
+            GetSoilData(SoilData, true); 
+
+            lcd.clear();
+            lcd.print(" U: ");
+            lcd.print(Calvalues.LowCal1);
+            lcd.print(", L: ");
+            lcd.print(Calvalues.HighCal1);
+            lcd.setCursor(0, 1);
+            lcd.print("  Actual: ");
+            lcd.print(SoilData[0]);
+
+            if (SoilData[0] > Calvalues.LowCal1) {
+                Calvalues.LowCal1 = SoilData[0];
+            }
+            if (SoilData[0] < Calvalues.HighCal1) {
+                Calvalues.HighCal1 = SoilData[0];
+            }
+            if (analogRead(KeypadPin) <= 1000) {
+                Stable = true;
+            }
+            delay(250);
+        }
+        delay(3000);
+
+    //Ask and Save into EEPROM
+        lcd.clear();
+        lcd.print("Save new values?"); 
+        keypress = ButtonPress();
+
+        if (keypress == 0) {           
+            #if defined(Atmega328) && defined(SoilSensCalibr)
+            SoilCal NewCal1 = { Calvalues.HighCal1, Calvalues.LowCal1 };
+            EEPROM.put(SoilAdress, NewCal1);
+            #endif
+            lcd.print("values saved"); 
+            delay(2000);
+        }
+}
+#endif
+
+void HumidityCheck() {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(F("Measuring soil..."));
+
+    float SoilData[1];
+    GetSoilData(SoilData, false); 
+
+    lcd.clear();
+    lcd.setCursor(1, 0);
+    lcd.print(SoilData[0],0);
+    lcd.print(F(" % humidity"));
+
+   
+    #ifdef AutoWater
+    if (SoilData[0] <= SoilHumWatering + 5) {                //TODO: this watering is not saved in the .txt file!
+        OtherMillis = millis();
+        lcd.setCursor(0, 1);
+        lcd.print("Enter to water...");
+
+        byte keypress;
+		keypress = ButtonPress();
+
+        if (keypress == 0) {            //If enter key is pressed
+            PumpWater();
+		} 
+        else if (keypress != 0) {       //TODO: this is not a definitive solution. It gets stuck until a button is pressed
+            return;
+        }
+         
+    } else {
+        delay(2000);
+    }
+    #endif
+
+    #ifndef AutoWater
+    delay(3000);
+    #endif
+}
+
+/*====================================================================================
+________________________________________FANS/PUMP_________________________________________
+======================================================================================*/
+
 #ifdef FanControl
-void AutoFanControl(float* AirData){      //Fan control with VPD   
+void AutoFanControl(float* AirData){                    //Fan control with VPD   
     // Determine the new fan speed based on AirData
        byte NewFanSpeed = map(AirData[1], 24, 35, 5, 95);
-
-    //Check if the fan speed needs to change
-        if (abs((FanSpeed) - (NewFanSpeed + FanSpeedAdjst)) > 2 || AirData[1] >= 24) {
-
+    
+        //Check if the fan speed needs to change
+        if (abs((FanSpeed) - (NewFanSpeed + FanSpeedAdjst)) > 2 && AirData[1] >= 24) {
+            #ifdef SerialPrint
+            Serial.println(F("--------------------------------"));
+            Serial.print(F("AirData[1]:"));
+            Serial.println(AirData[1]);
+            Serial.print(F("NewFanSpeed:"));
+            Serial.println(NewFanSpeed);
+            Serial.print(F("FanSpeedAdjst:"));
+            Serial.println(FanSpeedAdjst);
+            Serial.print("abs((FanSpeed) - (NewFanSpeed + FanSpeedAdjst)) = ");
+            Serial.println(abs((FanSpeed) - (NewFanSpeed + FanSpeedAdjst)));
+            #endif
             if ((NewFanSpeed + FanSpeedAdjst) < 10  || AirData[1] < 24) {       
                 FanSpeed = 0;
             } 
@@ -415,7 +664,11 @@ void AutoFanControl(float* AirData){      //Fan control with VPD
             else { 
                 FanSpeed = NewFanSpeed + FanSpeedAdjst;
             }
-    
+
+        #ifdef SerialPrint
+            Serial.print(F("Final fan speed:"));
+            Serial.println(FanSpeed);
+        #endif
     //Apply the speed and print the values
         lcd.clear();
         lcd.setCursor(3, 0);
@@ -430,7 +683,7 @@ void FanSpeedAdjust(){
     boolean ExitMenu = false; 
     while(!ExitMenu) {
         lcd.clear();
-        lcd.print("Adjust fan speed: ");
+        lcd.print(F("Adjust fan speed: "));
         lcd.setCursor(5,1);
         //lcd.print("+");
         lcd.print(FanSpeedAdjst);
@@ -465,155 +718,35 @@ void FanSpeedAdjust(){
 }
 #endif
 
-//TODO: maybe change from float to int, to reduce memory consumption
-void SoilMeasurement(float* SoilData) {             //Measures the soil humidity
-    #ifdef SerialPrint  
-    Serial.println("------------------------");
-    Serial.println("measurement commenced:");
+#ifdef AutoWater
+void PumpWater() {
+    lcd.clear();
+    lcd.print(" Watering plant");
+    delay(500);
+
+    boolean WaterStop = false;
+    OtherMillis = millis();
+    digitalWrite(A2, HIGH);
+    while (!WaterStop) {
+            float SoilData[1];
+            GetSoilData(SoilData, false);
+        delay(5000);
+        if (SoilData[0] >= 90 || millis() - OtherMillis >= 30000) {
+            WaterStop = true;
+        }
+    }
+    digitalWrite(A2, LOW);
+
+    #ifdef SerialPrint
+    lcd.clear();
+    lcd.print(" Plant watered");
+    delay(1000);
     #endif
-    //Retrieve from EEPROM old values
-        SoilCal GetCal1;
-        EEPROM.get(SoilAdress, GetCal1);
-        #ifdef SerialPrint
-        Serial.print("LowCal (0%): ");
-        Serial.println(GetCal1.LowCal1);        //low humidity = higher number 
-        Serial.print("HighCal (100%): ");
-        Serial.println(GetCal1.HighCal1);       //high humidity = lower number
-        #endif
-
-    //Captures sensor data analog values and transforms into %
-        byte ReadNum = 16;  //Uses 16 readings for the average
-        float average;
-        boolean exit = false;
-        byte offsetCal = 0.05;
-
-        while (!exit) {
-            average = 0;
-            float sensorReadings[ReadNum];  // array for raw measurements
-            float percentArray[ReadNum];    // array for raw converted to %
-            float total = 0;
-            #ifdef SerialPrint
-            Serial.println("Analog value + mapped %: ");
-            #endif
-            for (int i = 0; i < ReadNum; i++) {
-                sensorReadings[i] = analogRead(SPin1);
-                percentArray[i] = map(sensorReadings[i], GetCal1.HighCal1*(1 + offsetCal), GetCal1.LowCal1*(1 - offsetCal), 100, 0);
-                total += percentArray[i];
-
-                #ifdef SerialPrint
-                Serial.print(sensorReadings[i]);
-                Serial.print(", ");
-                Serial.print(percentArray[i]);
-                Serial.println("");
-                #endif
-            }
-
-            #ifdef SerialPrint
-            Serial.print("total/readings: ");
-            Serial.println(total/ReadNum);
-            #endif
-            
-            byte ValidCount = 0;
-            for (byte i = 0; i < ReadNum; i++) {
-                if (abs(percentArray[i] - (total/ReadNum)) < ((total/ReadNum)*0.05)) {
-                        average += percentArray[i];
-                        ValidCount++;
-                }
-            }
-            average /= ValidCount;
-
-            if (ValidCount >= ValidCount/2) {
-                exit = true;
-                #ifdef SerialPrint
-                Serial.println("Exit");
-                #endif
-            }
-            #ifdef SerialPrint
-            Serial.print("valid count: ");
-            Serial.println(ValidCount);
-            #endif
-        }
-
-    // convert into an array
-        //now only one is used, the format is reserved for more sensors
-        SoilData[0] = average;
-        #ifdef SerialPrint
-        Serial.print("final avg: ");
-        Serial.println(SoilData[0]);
-        Serial.println("------------------------");
-        #endif
 }
-
-void ReadDHT22(float* AirData) {                //Function to measure air temp. and humidity
-    //Read data and store it to variables hum and temp
-        float RH;   //Stores humidity value
-        float temp;  //Stores temperature value
-        RH = dht.readHumidity();
-        temp = dht.readTemperature();
-    
-    //Calculate VPD
-        byte offset = 1;    //Offset of leaf temperature difference from air temperature. 
-                            //It is in negative! 1 = -1 ºC difference in leaf temperature!
-        float VPD = (0.61078 * exp((temp - offset) / ((temp - offset) + 237.3) * 17.2694)) - ((0.61078 * exp(temp / (temp + 237.3) * 17.2694)) * RH / 100);
-        
-    // convert into an array
-        AirData[0] = RH;
-        AirData[1] = temp;
-        AirData[2] = VPD;
-        return;
-}
-
-#ifdef Datalog
-void LogData(byte FileNum, byte Datasize, float* DataArray) {
-    //Select folder based on FileNum
-        char filename[20]; //TODO: not sure if there is a way to optimize
-        if (FileNum == 1) {
-            strcpy(filename, "SOILDATA.txt");
-        } 
-        else if (FileNum == 2) {
-            strcpy(filename, "AIRDATA.txt");
-        }
-        //TODO: save the waterings to the same file as SOIL DATA with a boolean value 1/0... 
-        else if (FileNum == 3) {
-            strcpy(filename, "WATERING.txt");
-        }
-
-       
-    //Open the file. Only one file can be open at a time, so you have to close this one before opening another.
-        File dataFile = SD.open(filename, FILE_WRITE);
-        delay(300);         //Wait a little for file to open
-        if (!dataFile) {    //If the file isn't open, pop up an error:    
-            ErrorMessages(3);
-        }
-        
-    //If the file is available, write to it:
-        else {
-            //print hour and date
-                DateTime now = rtc.now();
-                //Date
-                    dataFile.print(now.day(), DEC);
-                    dataFile.print('/');
-                    dataFile.print(now.month(), DEC);
-                    dataFile.print('/');
-                    dataFile.print(now.year(), DEC);
-                //time
-                    dataFile.print(",");
-                    dataFile.print(now.hour(), DEC);    
-                    dataFile.print(':');
-                    dataFile.print(now.minute(), DEC);
-                    dataFile.print(",");
-            //print the data of the sensor
-                for (int i = 0; i < Datasize; i++) {
-                    dataFile.print(DataArray[i]);
-                    dataFile.print(", ");
-                    delay(10);
-                }
-                dataFile.println("");
-                dataFile.close();
-                delay(300);
-        }
-}
-#endif 
+#endif
+/*====================================================================================
+________________________________________DISPLAY_______________________________________
+======================================================================================*/
 
 void ErrorMessages(byte ErNum) {
     PowerSave = false;
@@ -643,10 +776,14 @@ void ErrorMessages(byte ErNum) {
         Freeze = true;         
     }
     #endif
+
     if (ErNum == 4) {
         lcd.print(" Option Disabled");
     }
 
+    if (ErNum == 5) {
+        lcd.print("Returning...");
+    }
     //Freezes controller indefinetly or delays to display error
         if (Freeze == true){
             while (1) {}
@@ -714,7 +851,9 @@ byte MainMenu() {       //Shows the main menu, returns a byte corresponding to t
         "Soil Humidity",    //2
         "Fan Speed Adjst"   //3
     };
-    
+    #ifdef SerialPrint
+        Serial.println(F("Entering menu"));
+    #endif
     byte MaxOptions = 4;        //!!! adjust this based on the number of menu options (counting nº0)
 	byte Options = 0;           //this sets the starting menu option
 	boolean ExitMenu = false;
@@ -746,8 +885,7 @@ byte MainMenu() {       //Shows the main menu, returns a byte corresponding to t
             case 0:                     //Enter button
             	if (Options == 0){      //if the menu was 0 (return) then go back
                 lcd.clear();
-                lcd.print("Returning...");
-                delay(1500);
+                ErrorMessages(5);
                 MenuOutput = Options;
                 } 
                 else {                  //else return with the menuoutput which is equal to the option number
@@ -779,243 +917,91 @@ byte MainMenu() {       //Shows the main menu, returns a byte corresponding to t
     return MenuOutput;
 }
 
-#ifdef SoilSensCalibr
-void ManualSoilCal() {
-    //Retrieve current values from EEPROM
-        SoilCal GetCal1;
-        EEPROM.get(SoilAdress, GetCal1);
+void OpenSecMenu(byte MenuOutput){
 
-    //Print the saved calibration values
-        lcd.clear();
-        lcd.print("Current values:");
-        lcd.setCursor(0,1);
-        lcd.print("U: ");
-        lcd.print(GetCal1.LowCal1);
-        lcd.print(", L: ");
-        lcd.print(GetCal1.HighCal1);
-        delay(2000);
-        
-        lcd.setCursor(0,0);
-        lcd.print("Calibrate now?"); 
-        byte keypress;
-        keypress = ButtonPress();
+    switch (MenuOutput) {
+    case 1:                  
+        #ifdef SoilSensCalibr
+        ManualSoilCal();
+        #endif
+        #ifndef SoilSensCalibr
+        ErrorMessages(4);
+        #endif
+    break;
 
-    //return if pressing other than center
-        if (keypress != 0) {           
-            lcd.print("Returning...");
-            delay(1000);
-            return;
-        }
+    case 2:                   
+        HumidityCheck();
+    break;
 
-    //display instructions
-        #ifdef SerialPrint
-            Serial.print("------------------------------------");
-            Serial.println("Starting calibration...");
+    case 3: 
+        #ifdef FanControl
+        FanSpeedAdjust();
         #endif
 
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("Put in Dry soil");
-        lcd.setCursor(0, 1);
-        lcd.print(" Then wet soil");
-        delay(3000);
+        #ifndef FanControl
+        ErrorMessages(4);
+        #endif
+    break;
 
-        lcd.clear();
-        lcd.print("Press when calbr");
-        lcd.setCursor(0, 1);
-        lcd.print("is completed...");
-        delay(3000);
-
-    //Calibration Loop
-        bool Stable = false;
-        int AnalogVal[4];
-        int total;
-        byte numReadings = 0;
-        while (!Stable) {
-            for (int i = 0; i < 4; i++) {
-                AnalogVal[i] = analogRead(SPin1);
-                total += AnalogVal[i];
-                delay(50);
-            }
-            int AvgVal;
-
-            for (int i = 0; i < 4; i++) {
-                if (abs(AnalogVal[i] - (total / 4)) < ((total/4)*0.05)){
-                    numReadings++;
-                    AvgVal += AnalogVal[i];
-                }
-            }
-            AvgVal /= numReadings;
-
-            #ifdef SerialPrint
-                Serial.print("Number of readings: ");
-                Serial.println(numReadings);
-                if(numReadings < 4) {
-                    Serial.println("Number of readings lower than 4");
-                }
-                Serial.print("avg value: ");
-                Serial.println(AvgVal);
-            #endif
-
-            lcd.clear();
-            lcd.setCursor(0, 0);
-            lcd.print(" U: ");
-            lcd.print(Calvalues.LowCal1);
-            lcd.print(", L: ");
-            lcd.print(Calvalues.HighCal1);
-            lcd.setCursor(0, 1);
-            lcd.print("  Actual: ");
-            lcd.print(AvgVal);
-
-            if (AvgVal > Calvalues.LowCal1) {
-                Calvalues.LowCal1 = AvgVal;
-            }
-            if (AvgVal < Calvalues.HighCal1) {
-                Calvalues.HighCal1 = AvgVal;
-            }
-            if (analogRead(KeypadPin) <= 1000) {
-                Stable = true;
-            }
-            delay(250);
-        }
-        delay(3000);
-
-    //Ask and Save into EEPROM
-        lcd.clear();
-        lcd.print("Save new values?"); 
-        keypress = ButtonPress();
-
-        if (keypress == 0) {           
-            #if defined(Atmega328) && defined(SoilSensCalibr)
-            SoilCal NewCal1 = { Calvalues.HighCal1, Calvalues.LowCal1 };
-            EEPROM.put(SoilAdress, NewCal1);
-            #endif
-            lcd.print("values saved"); 
-            delay(2000);
-        }
-}
-#endif
-
-#ifdef AutoWater
-void PumpWater() {
-    lcd.clear();
-    lcd.print(" Watering plant");
-    delay(500);
-
-    boolean WaterStop = false;
-    OtherMillis = millis();
-    digitalWrite(A2, HIGH);
-    while (!WaterStop) {
-        float SoilData[1];
-        SoilMeasurement(SoilData);
-        delay(5000);
-        if (SoilData[0] >= 90 || millis() - OtherMillis >= 30000) {
-            WaterStop = true;
-        }
     }
-    digitalWrite(A2, LOW);
-
-    #ifdef SerialPrint
-    lcd.clear();
-    lcd.print(" Plant watered");
-    delay(1000);
-    #endif
 }
-#endif
 
-void HumidityCheck() {
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Measuring soil...");
+/*====================================================================================
+________________________________________SD CARD_______________________________________
+======================================================================================*/
 
-    float SoilData[1];
-    SoilMeasurement(SoilData); 
-
-    lcd.clear();
-    lcd.setCursor(1, 0);
-    lcd.print(SoilData[0],0);
-    lcd.print(" % humidity");
-
-   
-    #ifdef AutoWater
-    if (SoilData[0] <= SoilHumWatering + 5) {                //TODO: this watering is not saved in the .txt file!
-        OtherMillis = millis();
-        lcd.setCursor(0, 1);
-        lcd.print("Enter to water...");
-
-        byte keypress;
-		keypress = ButtonPress();
-
-        if (keypress == 0) {            //If enter key is pressed
-            PumpWater();
-		} 
-        else if (keypress != 0) {       //TODO: this is not a definitive solution. It gets stuck until a button is pressed
-            return;
+#ifdef Datalog
+void LogData(byte FileNum, byte Datasize, float* DataArray) {
+    //Select folder based on FileNum
+        char filename[20]; //TODO: not sure if there is a way to optimize
+        if (FileNum == 1) {
+            strcpy(filename, "SOILDATA.txt");
+        } 
+        else if (FileNum == 2) {
+            strcpy(filename, "AIRDATA.txt");
         }
-         
-    } else {
-        delay(2000);
-    }
-    #endif
+        //TODO: save the waterings to the same file as SOIL DATA with a boolean value 1/0... 
+        else if (FileNum == 3) {
+            strcpy(filename, "WATERING.txt");
+        }
 
-    #ifndef AutoWater
-    delay(3000);
-    #endif
+       
+    //Open the file. Only one file can be open at a time, so you have to close this one before opening another.
+        File dataFile = SD.open(filename, FILE_WRITE);
+        delay(300);         //Wait a little for file to open
+        if (!dataFile) {    //If the file isn't open, pop up an error:    
+            ErrorMessages(3);
+        }
+        
+    //If the file is available, write to it:
+        else {
+            //print hour and date
+                DateTime now = rtc.now();
+                //Date
+                    dataFile.print(now.day(), DEC);
+                    dataFile.print('/');
+                    dataFile.print(now.month(), DEC);
+                    dataFile.print('/');
+                    dataFile.print(now.year(), DEC);
+                //time
+                    dataFile.print(",");
+                    dataFile.print(now.hour(), DEC);    
+                    dataFile.print(':');
+                    dataFile.print(now.minute(), DEC);
+                    dataFile.print(",");
+            //print the data of the sensor
+                for (int i = 0; i < Datasize; i++) {
+                    dataFile.print(DataArray[i]);
+                    dataFile.print(", ");
+                    delay(10);
+                }
+                dataFile.println("");
+                dataFile.close();
+                delay(300);
+        }
 }
-
-
+#endif 
 
 /*-----------------------------------   UNUSED CODE ---------------------------------------------
     LEFT HERE FOR FUTURE USE OR WHATEVER
-
-    //this was used for compilatign multiple sensors Data into same array to store them all together.
-
-        float SoilIntArray[4];
-        for (int i = 0; i < 2; i++) {
-            SoilIntArray[i] = Soil1Data[i];
-            SoilIntArray[i + 2] = Soil2Data[i];
-        }
-    
-    //this was used for calculating standard deviation from the 3 values of soil measurement %
-         
-        float sqDevSum = 0;
-        for (int i = 0; i < 3; i++) {
-            sqDevSum += (average - percentArray[i]) * (average - percentArray[i]);
-        }
-        float stDev = sqrt(sqDevSum / (3 - 1));
-
-        #ifdef SoilSensNoise
-        lcd.setCursor(3, 1);
-        lcd.print(SoilData[1],2);
-        lcd.print(" StDev");
-        #endif
-
-#ifdef SerialPrint
-void PrintData(byte Datasize, float* DataArray) {
-    //When the function is called, it includes the size of data array in a byte number format, and the array with data to save
-    //print hour and date
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        DateTime now = rtc.now();
-        //Show Date
-            lcd.print(now.day(), DEC);
-            lcd.print('/');
-            lcd.print(now.month(), DEC);
-            lcd.print('/');
-            lcd.print(now.year(), DEC);
-        //Show time
-            lcd.print(' ');
-            lcd.print(now.hour(), DEC);    
-            lcd.print(':');
-            lcd.print(now.minute(), DEC);
-
-    //print the data of the sensor
-        lcd.setCursor(0, 1);
-        for (int i = 0; i < Datasize; i++) {
-            lcd.print(DataArray[i]);
-            lcd.print(", ");
-            delay(10);
-        }
-}
-#endif
 */
